@@ -6,22 +6,19 @@ python manage.py collectstatic --noinput
 python manage.py migrate --noinput
 
 # Set default ADMIN_PASSWORD if not provided in Render dashboard
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-adminpassword123}"
-ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@tourbee.com}"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:-adminpassword123}"
+export ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@tourbee.com}"
 
 python manage.py shell << 'EOF'
 import os
-import sys
 from django.contrib.auth import get_user_model
 
-password = os.environ.get('ADMIN_PASSWORD', 'adminpassword123')
-
 User = get_user_model()
+password = os.environ.get('ADMIN_PASSWORD', 'adminpassword123')
 username = os.environ.get('ADMIN_USERNAME', 'admin')
 email = os.environ.get('ADMIN_EMAIL', 'admin@tourbee.com')
 
-# Clean up or get user
 user = User.objects.filter(username=username).first()
 if not user:
     user = User.objects.filter(email=email).first()
