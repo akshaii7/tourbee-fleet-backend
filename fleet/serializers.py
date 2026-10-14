@@ -54,12 +54,20 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
 
     def get_cng_bill_url(self, obj):
         if obj.cng_bill_file:
-            return obj.cng_bill_file.url
+            url = obj.cng_bill_file.url
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+            return url
         return None
 
     def get_uber_screenshot_url(self, obj):
         if obj.uber_screenshot_file:
-            return obj.uber_screenshot_file.url
+            url = obj.uber_screenshot_file.url
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+            return url
         return None
 
     def to_internal_value(self, data):

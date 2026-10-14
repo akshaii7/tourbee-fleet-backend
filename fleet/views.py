@@ -552,7 +552,23 @@ def my_salary(request):
 @api_view(['GET'])
 @permission_classes([IsAdminUserRole])
 def salary_overview(request):
-    """Admin: every driver's Total / Paid / Balance plus fleet-wide totals. Filter: ?driver=<id>."""
+    # Ensure all App Drivers exist in Fleet DriverProfile
+    try:
+        from apps.drivers.models import Driver as AppDriver
+        for ad in AppDriver.objects.select_related('user').all():
+            mode = PaymentModeChoices.REVENUE_SHARING if ad.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
+            DriverProfile.objects.get_or_create(
+                user=ad.user,
+                defaults={
+                    'payment_mode': mode,
+                    'phone': ad.user.phone_number,
+                    'license_number': ad.license_number or f"LIC-{ad.user_id}",
+                    'is_active': ad.is_active,
+                }
+            )
+    except Exception:
+        pass
+
     profiles = DriverProfile.objects.select_related('user', 'assigned_vehicle')
     driver_id = request.query_params.get('driver')
     if driver_id:
@@ -565,11 +581,18 @@ def salary_overview(request):
 
     rows = []
     for p in profiles:
-        t = totals_by_driver[p.id]
-        # Fixed Daily Rent drivers are excluded unless they carry legacy 50% salary history.
-        if p.payment_mode != PaymentModeChoices.REVENUE_SHARING and not t['has_salary']:
-            continue
-        rows.append({**_driver_identity(p), **_totals_payload(t)})
+        t = totals_by_driver.get(p.id, {
+            'total_salary': Decimal('0.00'),
+            'paid_salary': Decimal('0.00'),
+            'salary_balance': Decimal('0.00'),
+            'status': 'PAID',
+            'has_salary': False,
+            'days_counted': 0,
+            'last_payment_date': None,
+        })
+        # Include all 50% profit-sharing drivers so admin can select and record payments
+        if p.payment_mode == PaymentModeChoices.REVENUE_SHARING or t.get('has_salary'):
+            rows.append({**_driver_identity(p), **_totals_payload(t)})
 
     grand_total = sum((Decimal(r['total_salary']) for r in rows), Decimal('0.00'))
     grand_paid = sum((Decimal(r['paid_salary']) for r in rows), Decimal('0.00'))
