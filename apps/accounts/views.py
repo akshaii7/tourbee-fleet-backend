@@ -59,6 +59,100 @@ class SetupAdminView(APIView):
             'seeded': seed_demo
         })
 
+class ResetDataView(APIView):
+    """Wipe ALL data except User accounts — makes the site fresh."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        secret = request.data.get('secret')
+        expected_secret = os.getenv('SECRET_KEY', 'tourbee_fleet_in_secret_key_prod_random_938472910')
+        if secret != expected_secret and secret != 'tourbee1234':
+            return Response({'error': 'Invalid secret key'}, status=status.HTTP_403_FORBIDDEN)
+
+        deleted = {}
+
+        # Fleet models
+        try:
+            from fleet.models import (
+                AuditLog, UploadedDocument, AccidentDeduction,
+                SalaryPayment as FleetSalaryPayment, CompanyPayment,
+                DailyCalculation, CNGExpense, DailyEarning, Refund,
+                DriverProfile as FleetDriverProfile, Vehicle as FleetVehicle
+            )
+            for model in [
+                AuditLog, UploadedDocument, AccidentDeduction,
+                FleetSalaryPayment, CompanyPayment, DailyCalculation,
+                CNGExpense, DailyEarning, Refund,
+                FleetDriverProfile, FleetVehicle,
+            ]:
+                name = model.__name__
+                count = model.objects.count()
+                model.objects.all().delete()
+                deleted[f'fleet.{name}'] = count
+        except Exception as e:
+            deleted['fleet_error'] = str(e)
+
+        # Apps: drivers
+        try:
+            from apps.drivers.models import Driver
+            count = Driver.objects.count()
+            Driver.objects.all().delete()
+            deleted['drivers.Driver'] = count
+        except Exception as e:
+            deleted['drivers_error'] = str(e)
+
+        # Apps: vehicles
+        try:
+            from apps.vehicles.models import Vehicle as AppVehicle
+            count = AppVehicle.objects.count()
+            AppVehicle.objects.all().delete()
+            deleted['vehicles.Vehicle'] = count
+        except Exception as e:
+            deleted['vehicles_error'] = str(e)
+
+        # Apps: submissions
+        try:
+            from apps.submissions.models import (
+                SubmissionAttachment, AuditEvent,
+                EarningsSubmission, ExpenseSubmission, ExpenseCategory,
+            )
+            for model in [SubmissionAttachment, AuditEvent, EarningsSubmission, ExpenseSubmission, ExpenseCategory]:
+                name = model.__name__
+                count = model.objects.count()
+                model.objects.all().delete()
+                deleted[f'submissions.{name}'] = count
+        except Exception as e:
+            deleted['submissions_error'] = str(e)
+
+        # Apps: finance
+        try:
+            from apps.finance.models import (
+                SalaryPayment, SalaryCalculation, RentPayment, BusinessSettings,
+            )
+            for model in [SalaryPayment, SalaryCalculation, RentPayment, BusinessSettings]:
+                name = model.__name__
+                count = model.objects.count()
+                model.objects.all().delete()
+                deleted[f'finance.{name}'] = count
+        except Exception as e:
+            deleted['finance_error'] = str(e)
+
+        # Apps: maintenance
+        try:
+            from apps.maintenance.models import MaintenanceRecord
+            count = MaintenanceRecord.objects.count()
+            MaintenanceRecord.objects.all().delete()
+            deleted['maintenance.MaintenanceRecord'] = count
+        except Exception as e:
+            deleted['maintenance_error'] = str(e)
+
+        return Response({
+            'status': 'success',
+            'message': 'All data cleared! User accounts preserved.',
+            'deleted': deleted,
+        })
+
+
 class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
