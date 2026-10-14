@@ -46,13 +46,13 @@ if all([
 
 # Application definition
 INSTALLED_APPS = [
-    'cloudinary_storage',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'cloudinary_storage',
 
     # Third-party
     'corsheaders',
@@ -73,6 +73,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -200,17 +201,22 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.pages.dev",
     "https://tourbee-fleet-frontend.pages.dev",
 ]
+CORS_ALLOWED_ORIGINS = [
+    "https://tourbee-fleet-frontend.pages.dev",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
 
-# Cloudinary Storage Configuration
+# Static and Media Storage Configuration
 STORAGES = {
     "default": {
-        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage" if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) else "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
 
