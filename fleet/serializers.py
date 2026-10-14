@@ -53,22 +53,24 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
             return '650.00' if obj.working_day_type == 'HALF_DAY' else '1200.00'
         return '0.00'
 
+    def _make_absolute(self, url):
+        if not url:
+            return None
+        if url.startswith('http://') or url.startswith('https://'):
+            return url
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(url)
+        return f"https://tourbee-fleet-backend-1.onrender.com{url}"
+
     def get_cng_bill_url(self, obj):
         if obj.cng_bill_file:
-            url = obj.cng_bill_file.url
-            request = self.context.get('request')
-            if request and url.startswith('/'):
-                return request.build_absolute_uri(url)
-            return url
+            return self._make_absolute(obj.cng_bill_file.url)
         return None
 
     def get_uber_screenshot_url(self, obj):
         if obj.uber_screenshot_file:
-            url = obj.uber_screenshot_file.url
-            request = self.context.get('request')
-            if request and url.startswith('/'):
-                return request.build_absolute_uri(url)
-            return url
+            return self._make_absolute(obj.uber_screenshot_file.url)
         return None
 
     def to_internal_value(self, data):

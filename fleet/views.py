@@ -782,7 +782,7 @@ def fleet_dashboard(request):
         total_payments_received = total_gpay_paid + total_fixed_rent_paid
 
         # Recent driver submissions
-        recent_submissions = DailyCalculationSerializer(calcs.order_by('-date', '-created_at')[:20], many=True).data
+        recent_submissions = DailyCalculationSerializer(calcs.order_by('-date', '-created_at')[:20], many=True, context={'request': request}).data
 
         # Salary Payments made to drivers
         salary_paid_agg = SalaryPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
@@ -835,8 +835,8 @@ def fleet_dashboard(request):
                 'total_rent_due': str(total_rent_due),
                 'total_rent_pending': str(rent_pending),
                 'total_rent_paid': str(rent_paid),
-                'today_submission': DailyCalculationSerializer(today_calc).data if today_calc else None,
-                'recent_submissions': DailyCalculationSerializer(rent_calcs[:15], many=True).data,
+                'today_submission': DailyCalculationSerializer(today_calc, context={'request': request}).data if today_calc else None,
+                'recent_submissions': DailyCalculationSerializer(rent_calcs[:15], many=True, context={'request': request}).data,
             })
         else:
             # 50% Profit-Sharing Dashboard
@@ -861,7 +861,7 @@ def fleet_dashboard(request):
                 'total_tourbee_share': str(agg['total_tourbee_shares'] or '0.00'),
                 'total_gpay_pending': str(gpay_pending),
                 'total_gpay_paid': str(gpay_paid),
-                'today_submission': DailyCalculationSerializer(today_calc).data if today_calc else None,
-                'recent_submissions': DailyCalculationSerializer(calcs_50[:15], many=True).data,
+                'today_submission': DailyCalculationSerializer(today_calc, context={'request': request}).data if today_calc else None,
+                'recent_submissions': DailyCalculationSerializer(calcs_50[:15], many=True, context={'request': request}).data,
             })
 
