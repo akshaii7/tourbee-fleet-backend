@@ -5,21 +5,17 @@ pip install -r requirements.txt
 python manage.py collectstatic --noinput
 python manage.py migrate --noinput
 
-# Fail clearly if ADMIN_PASSWORD is missing
-if [ -z "${ADMIN_PASSWORD}" ]; then
-  echo "ERROR: ADMIN_PASSWORD environment variable is not set. Please set it in Render dashboard."
-  exit 1
-fi
+# Set default ADMIN_PASSWORD if not provided in Render dashboard
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-adminpassword123}"
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@tourbee.com}"
 
 python manage.py shell << 'EOF'
 import os
 import sys
 from django.contrib.auth import get_user_model
 
-password = os.environ.get('ADMIN_PASSWORD')
-if not password:
-    print("ERROR: ADMIN_PASSWORD environment variable is missing", file=sys.stderr)
-    sys.exit(1)
+password = os.environ.get('ADMIN_PASSWORD', 'adminpassword123')
 
 User = get_user_model()
 username = os.environ.get('ADMIN_USERNAME', 'admin')
