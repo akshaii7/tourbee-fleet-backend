@@ -16,7 +16,10 @@ DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
+    ".onrender.com",
+    "tourbee-fleet-backend-1.onrender.com",
     "tourbee-fleet-backend.onrender.com",
+    "*",
 ]
 
 
