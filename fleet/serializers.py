@@ -71,6 +71,10 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
             if profile:
                 mutable_data['driver'] = profile.id
 
+        # Support both working_day and working_day_type key names
+        if 'working_day' in mutable_data and 'working_day_type' not in mutable_data:
+            mutable_data['working_day_type'] = mutable_data.pop('working_day')
+
         if 'total_uber_earnings' in mutable_data and 'A' not in mutable_data:
             mutable_data['A'] = mutable_data['total_uber_earnings']
         if 'passenger_cash_collected' in mutable_data and 'B' not in mutable_data:

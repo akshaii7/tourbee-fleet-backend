@@ -1,3 +1,4 @@
+import uuid
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Driver
@@ -40,13 +41,13 @@ class DriverSerializer(serializers.ModelSerializer):
         return None
 
 class DriverCreateUpdateSerializer(serializers.ModelSerializer):
-    # For creating driver along with a user account if desired
-    username = serializers.CharField(write_only=True, required=False)
-    email = serializers.EmailField(write_only=True, required=False)
-    first_name = serializers.CharField(write_only=True, required=False)
-    last_name = serializers.CharField(write_only=True, required=False)
-    password = serializers.CharField(write_only=True, required=False)
-    phone_number = serializers.CharField(write_only=True, required=False)
+    # For creating driver along with a user account
+    username = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
+    first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    last_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    phone_number = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Driver
@@ -59,8 +60,26 @@ class DriverCreateUpdateSerializer(serializers.ModelSerializer):
             'username', 'email', 'first_name', 'last_name', 'password', 'phone_number'
         ]
         extra_kwargs = {
-            'user': {'required': False}
+            'user': {'required': False},
+            'license_number': {'required': False, 'allow_blank': True},
+            'license_expiry': {'required': False, 'allow_null': True},
+            'bank_account_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'bank_ifsc_code': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'upi_id': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'emergency_contact_name': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'emergency_contact_phone': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'daily_rent_amount': {'required': False},
+            'assigned_vehicle': {'required': False, 'allow_null': True},
         }
+
+    def _get_unique_license(self, username=None):
+        """Generate a unique placeholder license number if not provided."""
+        prefix = (username or 'DRV').upper()[:4].replace(' ', '')
+        candidate = f"TMP-{prefix}-{uuid.uuid4().hex[:6].upper()}"
+        # Ensure uniqueness in case of collision
+        while Driver.objects.filter(license_number=candidate).exists():
+            candidate = f"TMP-{prefix}-{uuid.uuid4().hex[:6].upper()}"
+        return candidate
 
     def create(self, validated_data):
         username = validated_data.pop('username', None)
@@ -71,17 +90,24 @@ class DriverCreateUpdateSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop('phone_number', '')
 
         if 'user' not in validated_data and username:
+            # Auto-generate email if not provided
+            safe_email = email.strip() if email and email.strip() else f"{username.replace(' ', '_')}_{uuid.uuid4().hex[:6]}@tourbee.in"
             user = User.objects.create_user(
                 username=username,
-                email=email or f"{username}@tourbee.in",
-                first_name=first_name,
-                last_name=last_name,
+                email=safe_email,
+                first_name=first_name or '',
+                last_name=last_name or '',
                 role=User.Role.DRIVER,
-                phone_number=phone_number
+                phone_number=phone_number or None
             )
-            user.set_password(password)
+            user.set_password(password or 'Driver@2026')
             user.save()
             validated_data['user'] = user
+
+        # Auto-generate license_number if missing or blank
+        license_num = validated_data.get('license_number', '')
+        if not license_num or not str(license_num).strip():
+            validated_data['license_number'] = self._get_unique_license(username)
 
         return super().create(validated_data)
 
@@ -93,22 +119,27 @@ class DriverCreateUpdateSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop('phone_number', None)
         validated_data.pop('username', None)
 
+        # If license_number is blank/empty in update, keep existing
+        if 'license_number' in validated_data:
+            if not validated_data['license_number'] or not str(validated_data['license_number']).strip():
+                validated_data['license_number'] = instance.license_number
+
         user = instance.user
         if user:
             user_updated = False
-            if first_name is not None:
+            if first_name is not None and first_name != '':
                 user.first_name = first_name
                 user_updated = True
             if last_name is not None:
                 user.last_name = last_name
                 user_updated = True
-            if email is not None and email != '':
-                user.email = email
+            if email is not None and email.strip() != '':
+                user.email = email.strip()
                 user_updated = True
-            if phone_number is not None:
-                user.phone_number = phone_number
+            if phone_number is not None and phone_number.strip() != '':
+                user.phone_number = phone_number.strip()
                 user_updated = True
-            if password:
+            if password and password.strip():
                 user.set_password(password)
                 user_updated = True
             if 'is_active' in validated_data:
@@ -118,4 +149,3 @@ class DriverCreateUpdateSerializer(serializers.ModelSerializer):
                 user.save()
 
         return super().update(instance, validated_data)
-

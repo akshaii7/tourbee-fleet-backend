@@ -32,10 +32,10 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
             FV.objects.get_or_create(
                 registration_number=av.registration_number,
                 defaults={
-                    'vehicle_model': f"{av.make} {av.model}",
-                    'fuel_type': 'CNG' if av.fuel_type == 'CNG' else 'PETROL',
+                    'make': av.make or 'Maruti Suzuki',
+                    'model': av.model or 'WagonR CNG',
+                    'year': av.year or 2023,
                     'is_active': True,
-                    'daily_rent_amount': av.daily_rent_rate or 850,
                 }
             )
         return FV.objects.filter(is_active=True).order_by('registration_number')
