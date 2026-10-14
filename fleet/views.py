@@ -4,6 +4,7 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
+from apps.accounts.permissions import IsAdminUserRole
 
 from .models import (
     DriverProfile, Vehicle, DailyEarning, DailyCalculation,
@@ -230,7 +231,7 @@ class DailyCalculationViewSet(viewsets.ModelViewSet):
             remarks=self.request.data.get('audit_remarks', '')
         )
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def mark_status(self, request, pk=None):
         calc = self.get_object()
         new_status = request.data.get('status', 'PAID').upper()
@@ -240,7 +241,7 @@ class DailyCalculationViewSet(viewsets.ModelViewSet):
             return Response({'id': calc.id, 'status': calc.status, 'payment_status': calc.status})
         return Response({'error': 'Invalid status. Must be PAID or PENDING.'}, status=400)
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def lock(self, request, pk=None):
         calc = self.get_object()
         calc.is_locked = True
@@ -255,7 +256,7 @@ class DailyCalculationViewSet(viewsets.ModelViewSet):
         )
         return Response({'status': 'locked', 'id': calc.id})
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def unlock(self, request, pk=None):
         calc = self.get_object()
         calc.is_locked = False
@@ -328,7 +329,7 @@ class CNGExpenseViewSet(viewsets.ModelViewSet):
         else:
             serializer.save()
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def approve(self, request, pk=None):
         expense = self.get_object()
         expense.status = StatusChoices.APPROVED
@@ -349,7 +350,7 @@ class CNGExpenseViewSet(viewsets.ModelViewSet):
 
         return Response({'status': 'approved', 'id': expense.id})
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def reject(self, request, pk=None):
         expense = self.get_object()
         expense.status = StatusChoices.REJECTED
@@ -376,7 +377,7 @@ class CompanyPaymentViewSet(viewsets.ModelViewSet):
         else:
             serializer.save()
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def confirm(self, request, pk=None):
         payment = self.get_object()
         payment.status = PaymentStatusChoices.COMPLETED
@@ -444,7 +445,7 @@ class AccidentDeductionViewSet(viewsets.ModelViewSet):
             }
         )
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def approve(self, request, pk=None):
         deduction = self.get_object()
         deduction.status = StatusChoices.APPROVED
@@ -461,7 +462,7 @@ class AccidentDeductionViewSet(viewsets.ModelViewSet):
         )
         return Response({'status': 'approved', 'id': deduction.id})
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def reject(self, request, pk=None):
         deduction = self.get_object()
         deduction.status = StatusChoices.REJECTED
