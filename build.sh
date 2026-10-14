@@ -22,10 +22,20 @@ if not password:
     sys.exit(1)
 
 User = get_user_model()
-username = os.environ.get('ADMIN_USERNAME', 'admin')
 email = os.environ.get('ADMIN_EMAIL', 'admin@tourbee.com')
+desired_username = os.environ.get('ADMIN_USERNAME', 'admin')
 
-user, created = User.objects.get_or_create(username=username, defaults={'email': email})
+# 1. Lookup by unique email first
+user = User.objects.filter(email=email).first()
+
+if not user:
+    # 2. Check if username already exists under a different email
+    user = User.objects.filter(username=desired_username).first()
+    if user:
+        user.email = email
+    else:
+        user = User(username=desired_username, email=email)
+
 user.set_password(password)
 user.is_superuser = True
 user.is_staff = True
@@ -33,5 +43,5 @@ user.is_active = True
 user.role = 'ADMIN'
 user.save()
 
-print(f"ADMIN_READY: Superuser '{username}' configured successfully!")
+print(f"ADMIN_READY: {user.username}")
 EOF
