@@ -1,10 +1,13 @@
+from datetime import date
 from decimal import Decimal
 from django.db.models import Sum, Q
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from apps.accounts.permissions import IsAdminUserRole
+from . import salary as salary_service
 
 from .models import (
     DriverProfile, Vehicle, DailyEarning, DailyCalculation,
@@ -386,16 +389,212 @@ class CompanyPaymentViewSet(viewsets.ModelViewSet):
         payment.save()
         return Response({'status': 'confirmed', 'id': payment.id})
 
+def _parse_query_date(request, name):
+    """Parse an optional YYYY-MM-DD query parameter; 400 on a malformed value."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        raise ValidationError({name: ['Use the format YYYY-MM-DD.']})
+
+
+def _fmt_date(d):
+    return d.strftime('%d-%m-%Y') if d else None
+
+
+def _totals_payload(totals):
+    return {
+        'total_salary': str(totals['total_salary']),
+        'paid_salary': str(totals['paid_salary']),
+        'salary_balance': str(totals['salary_balance']),
+        'status': totals['status'],
+        'has_salary': totals['has_salary'],
+        'days_counted': totals['days_counted'],
+        'last_payment_date': _fmt_date(totals['last_payment_date']),
+    }
+
+
+def _driver_identity(profile):
+    return {
+        'driver_id': profile.id,
+        'driver_name': profile.user.get_full_name() or profile.user.username,
+        'username': profile.user.username,
+        'phone': profile.phone,
+        'payment_mode': profile.payment_mode,
+        'is_active': profile.is_active,
+        'assigned_vehicle': profile.assigned_vehicle.registration_number if profile.assigned_vehicle else None,
+    }
+
+
+def _salary_detail(profile, request):
+    """Salary summary + payment history + per-day breakdown for ONE driver profile."""
+    date_from = _parse_query_date(request, 'date_from')
+    date_to = _parse_query_date(request, 'date_to')
+
+    payments = SalaryPayment.objects.filter(driver=profile).select_related('driver__user', 'recorded_by')
+    if date_from:
+        payments = payments.filter(payment_date__gte=date_from)
+    if date_to:
+        payments = payments.filter(payment_date__lte=date_to)
+
+    daily = [
+        {
+            'id': c.id,
+            'date': _fmt_date(c.date),
+            'date_iso': c.date.isoformat(),
+            'vehicle_reg': c.vehicle.registration_number,
+            'profit_amount': str(c.G),
+            'driver_salary': str(c.driver_share),
+        }
+        for c in salary_service.daily_salary_rows(profile.id, date_from, date_to)[:500]
+    ]
+
+    return {
+        **_driver_identity(profile),
+        'salary_applicable': profile.payment_mode == PaymentModeChoices.REVENUE_SHARING,
+        **_totals_payload(salary_service.salary_totals(profile.id)),
+        'payments': SalaryPaymentSerializer(payments[:500], many=True).data,
+        'daily_salary': daily,
+    }
+
+
 class SalaryPaymentViewSet(viewsets.ModelViewSet):
+    """
+    Salary payments (existing SalaryPayment model).
+
+    * list / retrieve: admin sees every driver (filter: ?driver=<id>&date_from=&date_to=),
+      a driver only ever sees their own rows.
+    * create / update / delete: admin only. All writes go through ``fleet.salary`` which
+      validates the amount server-side under a row lock and writes an audit log entry.
+    """
     serializer_class = SalaryPaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [permissions.IsAuthenticated()]
+        return [IsAdminUserRole()]
 
     def get_queryset(self):
         user = self.request.user
-        qs = SalaryPayment.objects.all().select_related('driver__user')
+        qs = SalaryPayment.objects.all().select_related('driver__user', 'recorded_by')
         if not user.is_admin:
-            qs = qs.filter(driver__user=user)
+            return qs.filter(driver__user=user)
+
+        driver_id = self.request.query_params.get('driver')
+        if driver_id:
+            if not str(driver_id).isdigit():
+                raise ValidationError({'driver': ['Driver must be a numeric id.']})
+            qs = qs.filter(driver_id=driver_id)
+        date_from = _parse_query_date(self.request, 'date_from')
+        date_to = _parse_query_date(self.request, 'date_to')
+        if date_from:
+            qs = qs.filter(payment_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(payment_date__lte=date_to)
         return qs
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        payment, created = salary_service.record_salary_payment(
+            driver_id=data['driver'].id,
+            amount=data['amount'],
+            payment_date=data.get('payment_date'),
+            recorded_by=request.user,
+            payment_method=data.get('payment_method'),
+            transaction_reference=data.get('transaction_reference'),
+            notes=data.get('notes'),
+            month=data.get('month'),
+            receipt_file=data.get('receipt_file'),
+            idempotency_key=(data.get('idempotency_key') or '').strip() or None,
+        )
+        body = SalaryPaymentSerializer(payment, context=self.get_serializer_context()).data
+        body['duplicate'] = not created
+        body['salary_summary'] = _totals_payload(salary_service.salary_totals(payment.driver_id))
+        return Response(body, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        payment = self.get_object()
+        serializer = self.get_serializer(payment, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if 'driver' in data and data['driver'].id != payment.driver_id:
+            raise ValidationError({'driver': ['A payment cannot be moved to a different driver.']})
+        changes = {
+            k: v for k, v in data.items()
+            if k in ('amount', 'payment_date', 'transaction_reference', 'notes', 'payment_method')
+        }
+        payment = salary_service.update_salary_payment(payment.id, user=request.user, **changes)
+        return Response(SalaryPaymentSerializer(payment, context=self.get_serializer_context()).data)
+
+    def destroy(self, request, *args, **kwargs):
+        salary_service.delete_salary_payment(self.get_object(), user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def my_salary(request):
+    """The logged-in driver's own salary: totals, payment history, per-day breakdown."""
+    profile = (
+        DriverProfile.objects.filter(user=request.user)
+        .select_related('user', 'assigned_vehicle').first()
+    )
+    if not profile:
+        return Response({'error': 'Driver profile not found'}, status=404)
+    return Response(_salary_detail(profile, request))
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUserRole])
+def salary_overview(request):
+    """Admin: every driver's Total / Paid / Balance plus fleet-wide totals. Filter: ?driver=<id>."""
+    profiles = DriverProfile.objects.select_related('user', 'assigned_vehicle')
+    driver_id = request.query_params.get('driver')
+    if driver_id:
+        if not str(driver_id).isdigit():
+            raise ValidationError({'driver': ['Driver must be a numeric id.']})
+        profiles = profiles.filter(id=driver_id)
+
+    profiles = list(profiles)
+    totals_by_driver = salary_service.salary_totals_by_driver([p.id for p in profiles])
+
+    rows = []
+    for p in profiles:
+        t = totals_by_driver[p.id]
+        # Fixed Daily Rent drivers are excluded unless they carry legacy 50% salary history.
+        if p.payment_mode != PaymentModeChoices.REVENUE_SHARING and not t['has_salary']:
+            continue
+        rows.append({**_driver_identity(p), **_totals_payload(t)})
+
+    grand_total = sum((Decimal(r['total_salary']) for r in rows), Decimal('0.00'))
+    grand_paid = sum((Decimal(r['paid_salary']) for r in rows), Decimal('0.00'))
+    return Response({
+        'drivers': rows,
+        'totals': {
+            'total_salary': str(grand_total),
+            'paid_salary': str(grand_paid),
+            'salary_balance': str(grand_total - grand_paid),
+            'drivers_pending': sum(1 for r in rows if r['status'] == 'PENDING'),
+        },
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUserRole])
+def salary_driver_detail(request, pk):
+    """Admin: one driver's salary summary, full payment history and per-day breakdown."""
+    profile = (
+        DriverProfile.objects.filter(pk=pk)
+        .select_related('user', 'assigned_vehicle').first()
+    )
+    if not profile:
+        return Response({'error': 'Driver not found'}, status=404)
+    return Response(_salary_detail(profile, request))
 
 class AccidentDeductionViewSet(viewsets.ModelViewSet):
     serializer_class = AccidentDeductionSerializer
@@ -562,6 +761,11 @@ def fleet_dashboard(request):
         # Recent driver submissions
         recent_submissions = DailyCalculationSerializer(calcs.order_by('-date', '-created_at')[:20], many=True).data
 
+        # Salary Payments made to drivers
+        salary_paid_agg = SalaryPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        total_salary_paid = salary_paid_agg
+        total_salary_balance = max(Decimal('0.00'), total_driver_salaries - total_salary_paid)
+
         return Response({
             'role': 'ADMIN',
             'active_drivers_count': active_drivers,
@@ -569,6 +773,8 @@ def fleet_dashboard(request):
             'drivers_rent_mode_count': drivers_rent_mode,
             'total_daily_uber_earnings': str(total_daily_uber_earnings),
             'total_driver_salaries': str(total_driver_salaries),
+            'total_salary_paid': str(total_salary_paid),
+            'total_salary_balance': str(total_salary_balance),
             'total_tourbee_shares': str(total_tourbee_shares),
             'total_gpay_pending': str(total_gpay_pending),
             'total_gpay_paid': str(total_gpay_paid),

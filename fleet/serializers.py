@@ -143,11 +143,38 @@ class CompanyPaymentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class SalaryPaymentSerializer(serializers.ModelSerializer):
-    driver_name = serializers.CharField(source='driver.user.get_full_name', read_only=True)
+    """
+    Salary payment (existing SalaryPayment model).
+
+    ``amount`` is validated here for shape (> 0, max 2 decimals); the outstanding-balance
+    check happens inside ``fleet.salary.record_salary_payment`` under a row lock.
+    ``month`` is optional and defaults to the month of ``payment_date``.
+    """
+    driver_name = serializers.SerializerMethodField()
+    recorded_by_name = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
+    month = serializers.DateField(required=False)
+    idempotency_key = serializers.CharField(max_length=64, required=False, allow_blank=True, write_only=True)
+
+    def get_driver_name(self, obj):
+        return obj.driver.user.get_full_name() or obj.driver.user.username
+
+    def get_recorded_by_name(self, obj):
+        return (obj.recorded_by.get_full_name() or obj.recorded_by.username) if obj.recorded_by else None
+
+    def get_status(self, obj):
+        # Every stored salary payment is a completed (paid) transfer.
+        return 'PAID'
 
     class Meta:
         model = SalaryPayment
-        fields = '__all__'
+        fields = [
+            'id', 'driver', 'driver_name', 'month', 'amount', 'payment_date',
+            'payment_method', 'transaction_reference', 'notes', 'receipt_file',
+            'status', 'recorded_by', 'recorded_by_name', 'idempotency_key', 'created_at',
+        ]
+        read_only_fields = ['id', 'recorded_by', 'created_at']
 
 class UploadedDocumentSerializer(serializers.ModelSerializer):
     driver_name = serializers.CharField(source='driver.user.get_full_name', read_only=True)

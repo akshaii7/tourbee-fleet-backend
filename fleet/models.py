@@ -287,6 +287,10 @@ class SalaryPayment(models.Model):
 
     recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='recorded_salary_payments')
     notes = models.TextField(blank=True, null=True)
+    idempotency_key = models.CharField(
+        max_length=64, unique=True, null=True, blank=True,
+        help_text="Client-generated key; a repeated submission with the same key never creates a second payment."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
