@@ -24,8 +24,20 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        from fleet.models import Vehicle
-        return Vehicle.objects.filter(is_active=True).order_by('registration_number')
+        from fleet.models import Vehicle as FV
+        from apps.vehicles.models import Vehicle as AV
+        # Auto-sync vehicles if fleet.Vehicle table has fewer items
+        for av in AV.objects.all():
+            FV.objects.get_or_create(
+                registration_number=av.registration_number,
+                defaults={
+                    'vehicle_model': f"{av.make} {av.model}",
+                    'fuel_type': 'CNG' if av.fuel_type == 'CNG' else 'PETROL',
+                    'is_active': True,
+                    'daily_rent_amount': av.daily_rent_rate or 850,
+                }
+            )
+        return FV.objects.filter(is_active=True).order_by('registration_number')
 from .calculations import compute_daily_breakdown
 
 class IsAdminOrOwnerDriver(permissions.BasePermission):
