@@ -40,10 +40,23 @@ class SetupAdminView(APIView):
         user.role = 'ADMIN'
         user.save()
 
+        seed_demo = request.data.get('seed_demo', False)
+        if seed_demo:
+            from django.core.management import call_command
+            try:
+                call_command('seed_tourbee_demo')
+            except Exception as e:
+                return Response({
+                    'status': 'partial_success',
+                    'message': f"Admin ready, but seed failed: {str(e)}",
+                    'username': user.username
+                })
+
         return Response({
             'status': 'success',
             'message': f"Superuser '{user.username}' created/updated successfully with password provided!",
-            'username': user.username
+            'username': user.username,
+            'seeded': seed_demo
         })
 
 class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
