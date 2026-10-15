@@ -234,90 +234,171 @@ class DashboardSummaryView(APIView):
             })
 
 class FinancialReportsView(APIView):
-    permission_classes = [IsAdminUserRole]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        if not (getattr(request.user, 'is_admin', False) or getattr(request.user, 'role', '') == 'ADMIN' or request.user.is_staff):
+            return Response({'error': 'Admin privileges required'}, status=status.HTTP_403_FORBIDDEN)
+
         today = timezone.localdate()
         start_date_str = request.query_params.get('start_date', today.replace(day=1).strftime('%Y-%m-%d'))
         end_date_str = request.query_params.get('end_date', today.strftime('%Y-%m-%d'))
 
-        # Approved Earnings in range
-        earnings_qs = EarningsSubmission.objects.filter(
+        from fleet.models import (
+            DailyCalculation, DriverProfile, Vehicle as FleetVehicle,
+            SalaryPayment as FleetSalaryPayment, PaymentModeChoices
+        )
+
+        # 1. Fleet Daily Calculations
+        calcs_qs = DailyCalculation.objects.filter(
+            date__range=[start_date_str, end_date_str]
+        )
+        calcs_rev = calcs_qs.filter(payment_mode=PaymentModeChoices.REVENUE_SHARING)
+        calcs_rent = calcs_qs.filter(payment_mode=PaymentModeChoices.FIXED_RENT)
+
+        fleet_gross_uber = calcs_rev.aggregate(v=Sum('A'))['v'] or Decimal('0.00')
+        fleet_cash = calcs_qs.aggregate(v=Sum('B'))['v'] or Decimal('0.00')
+        fleet_expenses = calcs_qs.aggregate(v=Sum('D'))['v'] or Decimal('0.00')
+        fleet_cng = calcs_qs.aggregate(v=Sum('E'))['v'] or Decimal('0.00')
+        fleet_toll = calcs_qs.aggregate(v=Sum('F'))['v'] or Decimal('0.00')
+        fleet_driver_share = calcs_rev.aggregate(v=Sum('driver_share'))['v'] or Decimal('0.00')
+        fleet_company_share = calcs_rev.aggregate(v=Sum('company_share'))['v'] or Decimal('0.00')
+        fleet_rent = calcs_rent.aggregate(v=Sum('J'))['v'] or Decimal('0.00')
+        fleet_trips = calcs_qs.count()
+
+        # 2. Legacy Earnings / Expenses / Rent
+        legacy_earnings = EarningsSubmission.objects.filter(
             status=SubmissionStatus.APPROVED,
             date__range=[start_date_str, end_date_str]
         )
-        gross_uber = earnings_qs.aggregate(v=Sum('gross_earnings'))['v'] or Decimal('0.00')
-        uber_comm = earnings_qs.aggregate(v=Sum('uber_commission'))['v'] or Decimal('0.00')
-        cash_collected = earnings_qs.aggregate(v=Sum('cash_collected'))['v'] or Decimal('0.00')
-        total_trips = earnings_qs.aggregate(v=Sum('trips_count'))['v'] or 0
+        legacy_gross = legacy_earnings.aggregate(v=Sum('gross_earnings'))['v'] or Decimal('0.00')
+        legacy_comm = legacy_earnings.aggregate(v=Sum('uber_commission'))['v'] or Decimal('0.00')
+        legacy_cash = legacy_earnings.aggregate(v=Sum('cash_collected'))['v'] or Decimal('0.00')
+        legacy_trips = legacy_earnings.aggregate(v=Sum('trips_count'))['v'] or 0
 
-        # Approved Operating Expenses in range
-        expenses_qs = ExpenseSubmission.objects.filter(
+        legacy_expenses = ExpenseSubmission.objects.filter(
             status=SubmissionStatus.APPROVED,
             date__range=[start_date_str, end_date_str]
         )
-        operating_expenses = expenses_qs.aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
-        cng_expenses = expenses_qs.filter(category__code='CNG').aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
-        toll_expenses = expenses_qs.filter(category__code='TOLL').aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
-        other_expenses = operating_expenses - cng_expenses - toll_expenses
+        legacy_op_exp = legacy_expenses.aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
+        legacy_cng = legacy_expenses.filter(category__code='CNG').aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
+        legacy_toll = legacy_expenses.filter(category__code='TOLL').aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
 
-        # Rent payments in range
-        rent_qs = RentPayment.objects.filter(
+        legacy_rent = RentPayment.objects.filter(
             payment_date__range=[start_date_str, end_date_str]
-        )
-        rent_revenue = rent_qs.aggregate(v=Sum('amount_paid'))['v'] or Decimal('0.00')
+        ).aggregate(v=Sum('amount_paid'))['v'] or Decimal('0.00')
 
-        # Maintenance records in range
+        # 3. Maintenance Records
         maint_qs = MaintenanceRecord.objects.filter(
             date__range=[start_date_str, end_date_str]
         )
         maintenance_costs = maint_qs.aggregate(v=Sum('cost'))['v'] or Decimal('0.00')
 
-        # Profit Sharing calculations in range
-        salary_calcs = SalaryCalculation.objects.filter(
-            period_end__range=[start_date_str, end_date_str]
-        )
-        driver_profit_share = salary_calcs.aggregate(v=Sum('driver_share_50'))['v'] or Decimal('0.00')
-        company_profit_share = salary_calcs.aggregate(v=Sum('company_share_50'))['v'] or Decimal('0.00')
-
-        # Company Net Operating Profit = Company Profit Share + Rent Revenue - Maintenance
+        # Combined totals
+        gross_uber = fleet_gross_uber + legacy_gross
+        uber_comm = legacy_comm
+        cash_collected = fleet_cash + legacy_cash
+        total_trips = fleet_trips + legacy_trips
+        cng_expenses = fleet_cng + legacy_cng
+        toll_expenses = fleet_toll + legacy_toll
+        operating_expenses = fleet_expenses + legacy_op_exp
+        other_expenses = max(Decimal('0.00'), operating_expenses - cng_expenses - toll_expenses)
+        rent_revenue = fleet_rent + legacy_rent
+        driver_profit_share = fleet_driver_share
+        company_profit_share = fleet_company_share
         company_net_profit = company_profit_share + rent_revenue - maintenance_costs
 
-        # Breakdown by vehicle
+        # Vehicle Breakdown
         vehicle_breakdown = []
+        seen_regs = set()
+        all_vehicles = []
         for v in Vehicle.objects.all():
-            v_earnings = earnings_qs.filter(vehicle=v).aggregate(v=Sum('gross_earnings'))['v'] or Decimal('0.00')
-            v_expenses = expenses_qs.filter(vehicle=v).aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
-            v_maint = maint_qs.filter(vehicle=v).aggregate(v=Sum('cost'))['v'] or Decimal('0.00')
-            v_trips = earnings_qs.filter(vehicle=v).aggregate(v=Sum('trips_count'))['v'] or 0
-            if v_earnings > 0 or v_expenses > 0 or v_maint > 0:
-                vehicle_breakdown.append({
+            if v.registration_number not in seen_regs:
+                seen_regs.add(v.registration_number)
+                all_vehicles.append({
                     'id': v.id,
                     'registration': v.registration_number,
                     'model': f"{v.make} {v.model}",
-                    'gross_earnings': float(v_earnings),
-                    'operating_expenses': float(v_expenses),
-                    'maintenance_cost': float(v_maint),
-                    'trips': v_trips,
-                    'net_fleet_contribution': float(v_earnings - v_expenses - v_maint)
+                    'apps_vehicle_id': v.id,
+                    'fleet_vehicle_id': getattr(FleetVehicle.objects.filter(registration_number=v.registration_number).first(), 'id', None)
+                })
+        for fv in FleetVehicle.objects.all():
+            if fv.registration_number not in seen_regs:
+                seen_regs.add(fv.registration_number)
+                all_vehicles.append({
+                    'id': fv.id,
+                    'registration': fv.registration_number,
+                    'model': f"{fv.make} {fv.model}",
+                    'apps_vehicle_id': None,
+                    'fleet_vehicle_id': fv.id
                 })
 
-        # Breakdown by driver
+        for vinfo in all_vehicles:
+            reg = vinfo['registration']
+            v_calcs = calcs_qs.filter(Q(vehicle__registration_number=reg) | Q(vehicle_id=vinfo['fleet_vehicle_id']))
+            f_gross = v_calcs.aggregate(v=Sum('A'))['v'] or Decimal('0.00')
+            f_exp = v_calcs.aggregate(v=Sum('D'))['v'] or Decimal('0.00')
+            f_cng = v_calcs.aggregate(v=Sum('E'))['v'] or Decimal('0.00')
+            f_trips = v_calcs.count()
+
+            l_gross = Decimal('0.00')
+            l_exp = Decimal('0.00')
+            l_maint = Decimal('0.00')
+            l_trips = 0
+            if vinfo['apps_vehicle_id']:
+                app_v_id = vinfo['apps_vehicle_id']
+                l_gross = legacy_earnings.filter(vehicle_id=app_v_id).aggregate(v=Sum('gross_earnings'))['v'] or Decimal('0.00')
+                l_exp = legacy_expenses.filter(vehicle_id=app_v_id).aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
+                l_maint = maint_qs.filter(vehicle_id=app_v_id).aggregate(v=Sum('cost'))['v'] or Decimal('0.00')
+                l_trips = legacy_earnings.filter(vehicle_id=app_v_id).aggregate(v=Sum('trips_count'))['v'] or 0
+
+            tot_gross = f_gross + l_gross
+            tot_exp = f_exp + f_cng + l_exp
+            tot_trips = f_trips + l_trips
+
+            vehicle_breakdown.append({
+                'id': vinfo['id'],
+                'registration': reg,
+                'model': vinfo['model'],
+                'gross_earnings': float(tot_gross),
+                'operating_expenses': float(tot_exp),
+                'maintenance_cost': float(l_maint),
+                'trips': tot_trips,
+                'net_fleet_contribution': float(tot_gross - tot_exp - l_maint)
+            })
+
+        # Driver Breakdown
         driver_breakdown = []
         for d in Driver.objects.select_related('user', 'assigned_vehicle'):
-            d_earnings = earnings_qs.filter(driver=d).aggregate(v=Sum('gross_earnings'))['v'] or Decimal('0.00')
-            d_comm = earnings_qs.filter(driver=d).aggregate(v=Sum('uber_commission'))['v'] or Decimal('0.00')
-            d_expenses = expenses_qs.filter(driver=d).aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
-            d_trips = earnings_qs.filter(driver=d).aggregate(v=Sum('trips_count'))['v'] or 0
+            d_user = d.user
+            d_calcs = calcs_qs.filter(Q(driver__user=d_user) | Q(driver_id=d.id))
+            d_gross = d_calcs.aggregate(v=Sum('A'))['v'] or Decimal('0.00')
+            d_exp = d_calcs.aggregate(v=Sum('D'))['v'] or Decimal('0.00')
+            d_cng = d_calcs.aggregate(v=Sum('E'))['v'] or Decimal('0.00')
+            d_share = d_calcs.aggregate(v=Sum('driver_share'))['v'] or Decimal('0.00')
+            d_rent = d_calcs.aggregate(v=Sum('J'))['v'] or Decimal('0.00')
+            d_trips = d_calcs.count()
+
+            l_gross = legacy_earnings.filter(driver=d).aggregate(v=Sum('gross_earnings'))['v'] or Decimal('0.00')
+            l_comm = legacy_earnings.filter(driver=d).aggregate(v=Sum('uber_commission'))['v'] or Decimal('0.00')
+            l_exp = legacy_expenses.filter(driver=d).aggregate(v=Sum('amount'))['v'] or Decimal('0.00')
+            l_trips = legacy_earnings.filter(driver=d).aggregate(v=Sum('trips_count'))['v'] or 0
+
+            tot_gross = d_gross + l_gross
+            tot_exp = d_exp + d_cng + l_exp
+            tot_trips = d_trips + l_trips
+
             driver_breakdown.append({
                 'id': d.id,
                 'name': d.full_name,
                 'driver_type': d.driver_type,
                 'vehicle': d.assigned_vehicle.registration_number if d.assigned_vehicle else 'None',
-                'gross_earnings': float(d_earnings),
-                'commission': float(d_comm),
-                'expenses': float(d_expenses),
-                'trips': d_trips,
+                'gross_earnings': float(tot_gross),
+                'commission': float(l_comm),
+                'expenses': float(tot_exp),
+                'driver_salary': float(d_share),
+                'rent_due': float(d_rent),
+                'trips': tot_trips,
             })
 
         return Response({
@@ -342,46 +423,105 @@ class FinancialReportsView(APIView):
         })
 
 class ExportDataView(APIView):
-    permission_classes = [IsAdminUserRole]
+    permission_classes = [permissions.AllowAny]
 
     def perform_content_negotiation(self, request, force=False):
-        # Allow returning raw CSV or Excel binary file without DRF format suffix 404
         from rest_framework.renderers import JSONRenderer
         return (JSONRenderer(), 'application/json')
 
     def get(self, request):
+        user = request.user
+        if not (user and user.is_authenticated):
+            token_str = request.query_params.get('token')
+            if token_str:
+                from rest_framework_simplejwt.tokens import AccessToken
+                from django.contrib.auth import get_user_model
+                try:
+                    access_token = AccessToken(token_str)
+                    user_id = access_token['user_id']
+                    User = get_user_model()
+                    user = User.objects.get(id=user_id)
+                except Exception:
+                    return Response({'error': 'Invalid or expired token.'}, status=status.HTTP_401_UNAUTHORIZED)
+            else:
+                return Response({'error': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not (getattr(user, 'is_admin', False) or getattr(user, 'role', '') == 'ADMIN' or user.is_staff):
+            return Response({'error': 'Admin permissions required.'}, status=status.HTTP_403_FORBIDDEN)
+
         report_type = request.query_params.get('type', 'earnings')
         export_format = request.query_params.get('format', 'csv').lower()
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
 
+        from fleet.models import DailyCalculation
+
         if report_type == 'earnings':
-            qs = EarningsSubmission.objects.all().select_related('driver__user', 'vehicle').order_by('-date')
+            qs = DailyCalculation.objects.all().select_related('driver__user', 'vehicle').order_by('-date', '-created_at')
             if start_date:
                 qs = qs.filter(date__gte=start_date)
             if end_date:
                 qs = qs.filter(date__lte=end_date)
-            
+
             headers = [
-                'ID', 'Date', 'Driver Name', 'Vehicle Reg', 'Trips', 'Online Hours',
-                'Gross Earnings (INR)', 'Uber Commission (INR)', 'Cash Collected (INR)',
-                'Net Earnings (INR)', 'Status'
+                'ID', 'Date', 'Driver Name', 'Phone', 'Vehicle Reg', 'Payment Mode',
+                'Working Shift', 'Gross Uber Earnings (INR)', 'Passenger Cash (INR)',
+                'Operating Expenses (INR)', 'CNG Fuel Bill (INR)', 'Toll / Refund (INR)',
+                'Profit Amount (INR)', 'Driver Salary 50% (INR)', 'TourBee Share 50% (INR)',
+                'Fixed Rent (INR)', 'Payment Status'
             ]
             rows = []
             for r in qs:
+                d_name = r.driver.user.get_full_name() or r.driver.user.username if r.driver else 'N/A'
+                d_phone = r.driver.phone if r.driver else ''
+                v_reg = r.vehicle.registration_number if r.vehicle else 'N/A'
                 rows.append([
                     r.id,
                     r.date.strftime('%d-%m-%Y'),
-                    r.driver.full_name,
-                    r.vehicle.registration_number,
-                    r.trips_count,
-                    float(r.online_hours),
-                    float(r.gross_earnings),
-                    float(r.uber_commission),
-                    float(r.cash_collected),
-                    float(r.net_earnings),
+                    d_name,
+                    d_phone,
+                    v_reg,
+                    r.get_payment_mode_display(),
+                    r.get_working_day_type_display(),
+                    float(r.A),
+                    float(r.B),
+                    float(r.D),
+                    float(r.E),
+                    float(r.F),
+                    float(r.G),
+                    float(r.driver_share),
+                    float(r.company_share),
+                    float(r.J),
                     r.status
                 ])
+
+            # Also append legacy EarningsSubmission if any
+            legacy_qs = EarningsSubmission.objects.all().select_related('driver__user', 'vehicle').order_by('-date')
+            if start_date:
+                legacy_qs = legacy_qs.filter(date__gte=start_date)
+            if end_date:
+                legacy_qs = legacy_qs.filter(date__lte=end_date)
+            for r in legacy_qs:
+                rows.append([
+                    f"LEGACY-{r.id}",
+                    r.date.strftime('%d-%m-%Y'),
+                    r.driver.full_name,
+                    getattr(r.driver.user, 'phone_number', ''),
+                    r.vehicle.registration_number,
+                    r.driver.driver_type,
+                    'FULL_DAY',
+                    float(r.gross_earnings),
+                    float(r.cash_collected),
+                    float(r.uber_commission),
+                    0.0,
+                    0.0,
+                    float(r.net_earnings),
+                    float(r.net_earnings) * 0.5,
+                    float(r.net_earnings) * 0.5,
+                    0.0,
+                    r.status
+                ])
+
             filename = f"tourbee_earnings_{timezone.localdate().strftime('%d_%m_%Y')}"
 
         elif report_type == 'expenses':
@@ -410,6 +550,45 @@ class ExportDataView(APIView):
                     'Yes' if r.paid_by_driver else 'No',
                     r.status
                 ])
+
+            # Also add CNG and Operating Expenses from DailyCalculation
+            calcs_qs = DailyCalculation.objects.filter(Q(D__gt=0) | Q(E__gt=0)).select_related('driver__user', 'vehicle').order_by('-date')
+            if start_date:
+                calcs_qs = calcs_qs.filter(date__gte=start_date)
+            if end_date:
+                calcs_qs = calcs_qs.filter(date__lte=end_date)
+            for r in calcs_qs:
+                d_name = r.driver.user.get_full_name() or r.driver.user.username if r.driver else 'N/A'
+                v_reg = r.vehicle.registration_number if r.vehicle else 'N/A'
+                if r.E > 0:
+                    rows.append([
+                        f"CALC-CNG-{r.id}",
+                        r.date.strftime('%d-%m-%Y'),
+                        d_name,
+                        v_reg,
+                        'CNG Fuel',
+                        float(r.E),
+                        'CNG Station',
+                        '',
+                        0,
+                        'Yes',
+                        r.status
+                    ])
+                if r.D > 0:
+                    rows.append([
+                        f"CALC-EXP-{r.id}",
+                        r.date.strftime('%d-%m-%Y'),
+                        d_name,
+                        v_reg,
+                        'Daily Expense',
+                        float(r.D),
+                        'General',
+                        '',
+                        0,
+                        'Yes',
+                        r.status
+                    ])
+
             filename = f"tourbee_expenses_{timezone.localdate().strftime('%d_%m_%Y')}"
 
         elif report_type == 'maintenance':
@@ -447,7 +626,6 @@ class ExportDataView(APIView):
             ws = wb.active
             ws.title = report_type.capitalize()
 
-            # Styling
             header_fill = PatternFill(start_color='064E3B', end_color='064E3B', fill_type='solid')
             header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
 
@@ -461,7 +639,6 @@ class ExportDataView(APIView):
             for row in rows:
                 ws.append(row)
 
-            # Adjust column widths
             for col in ws.columns:
                 max_len = max(len(str(cell.value or '')) for cell in col)
                 col_letter = openpyxl.utils.get_column_letter(col[0].column)
@@ -485,3 +662,4 @@ class ExportDataView(APIView):
             for row in rows:
                 writer.writerow(row)
             return response
+
