@@ -170,6 +170,28 @@ class DailyCalculationViewSet(viewsets.ModelViewSet):
         if not user.is_admin:
             profile = DriverProfile.objects.filter(user=user).first()
             if not profile:
+                # Auto-create from apps.drivers.Driver
+                try:
+                    from apps.drivers.models import Driver as AppDriver
+                    app_driver = AppDriver.objects.filter(user=user).first()
+                    if app_driver:
+                        mode = PaymentModeChoices.REVENUE_SHARING if app_driver.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
+                        license_num = app_driver.license_number or f"LIC-{user.id}"
+                        existing = DriverProfile.objects.filter(license_number=license_num).first()
+                        if existing and existing.user != user:
+                            license_num = f"{license_num}-{user.id}"
+                        profile, _ = DriverProfile.objects.get_or_create(
+                            user=user,
+                            defaults={
+                                'payment_mode': mode,
+                                'phone': user.phone_number or '',
+                                'license_number': license_num,
+                                'is_active': app_driver.is_active,
+                            }
+                        )
+                except Exception:
+                    pass
+            if not profile:
                 raise permissions.PermissionDenied("Driver profile not found.")
             driver_val = profile
         else:
@@ -545,7 +567,61 @@ def my_salary(request):
         .select_related('user', 'assigned_vehicle').first()
     )
     if not profile:
-        return Response({'error': 'Driver profile not found'}, status=404)
+        # Try to auto-create from apps.drivers.Driver
+        try:
+            from apps.drivers.models import Driver as AppDriver
+            app_driver = AppDriver.objects.filter(user=request.user).first()
+            if app_driver:
+                mode = PaymentModeChoices.REVENUE_SHARING if app_driver.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
+                fleet_veh = None
+                if app_driver.assigned_vehicle:
+                    fleet_veh = Vehicle.objects.filter(
+                        registration_number=app_driver.assigned_vehicle.registration_number
+                    ).first()
+                    if not fleet_veh:
+                        fleet_veh = Vehicle.objects.create(
+                            registration_number=app_driver.assigned_vehicle.registration_number,
+                            make=app_driver.assigned_vehicle.make or 'Maruti Suzuki',
+                            model=app_driver.assigned_vehicle.model or 'WagonR CNG',
+                            year=app_driver.assigned_vehicle.year or 2023,
+                            is_active=True,
+                        )
+                license_num = app_driver.license_number or f"LIC-{request.user.id}"
+                existing = DriverProfile.objects.filter(license_number=license_num).first()
+                if existing and existing.user != request.user:
+                    license_num = f"{license_num}-{request.user.id}"
+                profile, _ = DriverProfile.objects.get_or_create(
+                    user=request.user,
+                    defaults={
+                        'payment_mode': mode,
+                        'phone': request.user.phone_number or '',
+                        'license_number': license_num,
+                        'assigned_vehicle': fleet_veh,
+                        'is_active': app_driver.is_active,
+                    }
+                )
+        except Exception:
+            pass
+        # If still no profile, create a basic one for any DRIVER-role user
+        if not profile and getattr(request.user, 'role', None) == 'DRIVER':
+            try:
+                license_num = f"LIC-{request.user.id}"
+                existing = DriverProfile.objects.filter(license_number=license_num).first()
+                if existing and existing.user != request.user:
+                    license_num = f"LIC-{request.user.id}-X"
+                profile, _ = DriverProfile.objects.get_or_create(
+                    user=request.user,
+                    defaults={
+                        'payment_mode': PaymentModeChoices.REVENUE_SHARING,
+                        'phone': request.user.phone_number or '',
+                        'license_number': license_num,
+                        'is_active': True,
+                    }
+                )
+            except Exception:
+                pass
+        if not profile:
+            return Response({'error': 'Driver profile not found'}, status=404)
     return Response(_salary_detail(profile, request))
 
 
@@ -809,6 +885,60 @@ def fleet_dashboard(request):
     else:
         # Driver Dashboard: driver can only see their own information
         profile = DriverProfile.objects.filter(user=user).first()
+        if not profile:
+            # Try to auto-create from apps.drivers.Driver
+            try:
+                from apps.drivers.models import Driver as AppDriver
+                app_driver = AppDriver.objects.filter(user=user).first()
+                if app_driver:
+                    mode = PaymentModeChoices.REVENUE_SHARING if app_driver.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
+                    fleet_veh = None
+                    if app_driver.assigned_vehicle:
+                        fleet_veh = Vehicle.objects.filter(
+                            registration_number=app_driver.assigned_vehicle.registration_number
+                        ).first()
+                        if not fleet_veh:
+                            fleet_veh = Vehicle.objects.create(
+                                registration_number=app_driver.assigned_vehicle.registration_number,
+                                make=app_driver.assigned_vehicle.make or 'Maruti Suzuki',
+                                model=app_driver.assigned_vehicle.model or 'WagonR CNG',
+                                year=app_driver.assigned_vehicle.year or 2023,
+                                is_active=True,
+                            )
+                    license_num = app_driver.license_number or f"LIC-{user.id}"
+                    existing = DriverProfile.objects.filter(license_number=license_num).first()
+                    if existing and existing.user != user:
+                        license_num = f"{license_num}-{user.id}"
+                    profile, _ = DriverProfile.objects.get_or_create(
+                        user=user,
+                        defaults={
+                            'payment_mode': mode,
+                            'phone': user.phone_number or '',
+                            'license_number': license_num,
+                            'assigned_vehicle': fleet_veh,
+                            'is_active': app_driver.is_active,
+                        }
+                    )
+            except Exception:
+                pass
+        # Fallback: create a basic fleet profile for any DRIVER-role user
+        if not profile and getattr(user, 'role', None) == 'DRIVER':
+            try:
+                license_num = f"LIC-{user.id}"
+                existing = DriverProfile.objects.filter(license_number=license_num).first()
+                if existing and existing.user != user:
+                    license_num = f"LIC-{user.id}-X"
+                profile, _ = DriverProfile.objects.get_or_create(
+                    user=user,
+                    defaults={
+                        'payment_mode': PaymentModeChoices.REVENUE_SHARING,
+                        'phone': user.phone_number or '',
+                        'license_number': license_num,
+                        'is_active': True,
+                    }
+                )
+            except Exception:
+                pass
         if not profile:
             return Response({'error': 'Driver profile not found'}, status=404)
 
