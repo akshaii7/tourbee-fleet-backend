@@ -172,9 +172,9 @@ class DailyCalculation(models.Model):
     G = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Earnings after Expenses (A - D - E)")
     driver_share = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Driver Share (G / 2)")
     company_share = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Company Share (G / 2)")
-    H = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Earnings after adding back Uber Charge (G + D)")
-    I = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Amount after refund (H - F)")
-    J = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Final Driver Payment to Company (I - abs(C) or Fixed Rent)")
+    H = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="TourBee 50% Share (settlement base)")
+    I = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="TourBee Share - Wallet Difference")
+    J = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), help_text="Final GPay Amount (TourBee Share - Wallet - Refund)")
 
     status = models.CharField(
         max_length=20,
@@ -231,9 +231,9 @@ class DailyCalculation(models.Model):
             self.G = result['profit_amount']
             self.driver_share = result['driver_salary']
             self.company_share = result['tourbee_share']
-            self.H = result['initial_settlement_amount']
-            self.I = result['amount_after_refund']
-            self.J = result['final_gpay_amount']
+            self.H = result['H']   # TourBee Share (settlement base)
+            self.I = result['I']   # TourBee Share - Wallet Difference
+            self.J = result['J']   # Final GPay Amount
 
     def save(self, *args, **kwargs):
         self.recalculate()

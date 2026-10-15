@@ -62,7 +62,7 @@ class ReportsAndExportsTests(TestCase):
         resp_csv = client.get('/api/reports/export/?type=earnings&format=csv')
         self.assertEqual(resp_csv.status_code, status.HTTP_200_OK)
         self.assertEqual(resp_csv['Content-Type'], 'text/csv; charset=utf-8')
-        self.assertIn(b'Gross Earnings', resp_csv.content)
+        self.assertIn(b'Gross Uber Earnings', resp_csv.content)
 
         # Excel export
         resp_excel = client.get('/api/reports/export/?type=earnings&format=excel')
