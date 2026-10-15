@@ -52,11 +52,15 @@ class SetupAdminView(APIView):
                     'username': user.username
                 })
 
+        from django.conf import settings
         return Response({
             'status': 'success',
             'message': f"Superuser '{user.username}' created/updated successfully with password provided!",
             'username': user.username,
-            'seeded': seed_demo
+            'seeded': seed_demo,
+            'db_engine': settings.DATABASES['default']['ENGINE'],
+            'db_name': str(settings.DATABASES['default']['NAME']),
+            'has_database_url': bool(os.getenv('DATABASE_URL')),
         })
 
 class ResetDataView(APIView):
