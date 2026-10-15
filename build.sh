@@ -4,6 +4,7 @@ set -o errexit
 pip install -r requirements.txt
 python manage.py collectstatic --noinput
 python manage.py migrate --noinput
+mkdir -p media media/cng_bills media/uber_screenshots media/receipts
 
 # Set default ADMIN_PASSWORD if not provided in Render dashboard
 export ADMIN_PASSWORD="${ADMIN_PASSWORD:-adminpassword123}"

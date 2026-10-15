@@ -17,10 +17,26 @@ urlpatterns = [
 
 from django.urls import re_path
 from django.views.static import serve
+from django.http import HttpResponse
+
+def media_serve_cors(request, path):
+    if request.method == 'OPTIONS':
+        res = HttpResponse()
+        res['Access-Control-Allow-Origin'] = '*'
+        res['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        res['Access-Control-Allow-Headers'] = '*'
+        return res
+    response = serve(request, path, document_root=settings.MEDIA_ROOT)
+    response['Access-Control-Allow-Origin'] = '*'
+    response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response['Access-Control-Allow-Headers'] = '*'
+    return response
 
 urlpatterns += [
-    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    re_path(r'^media/(?P<path>.*)$', media_serve_cors),
+    re_path(r'^api/media/(?P<path>.*)$', media_serve_cors),
 ]
 
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+

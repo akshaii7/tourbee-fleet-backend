@@ -58,10 +58,9 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
             return None
         if url.startswith('http://') or url.startswith('https://'):
             return url
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(url)
-        return f"https://tourbee-fleet-backend-1.onrender.com{url}"
+        base = os.getenv('BACKEND_BASE_URL', 'https://tourbee-fleet-backend-1.onrender.com').rstrip('/')
+        clean_url = '/' + url.lstrip('/')
+        return f"{base}{clean_url}"
 
     def get_cng_bill_url(self, obj):
         if obj.cng_bill_file:
