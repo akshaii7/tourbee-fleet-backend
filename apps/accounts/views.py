@@ -23,7 +23,7 @@ class SetupAdminView(APIView):
             return Response({'error': 'Invalid secret key'}, status=status.HTTP_403_FORBIDDEN)
 
         username = request.data.get('username', 'admin')
-        password = request.data.get('password', 'admin1234')
+        password = request.data.get('password', 'TourBee@2026')
         email = request.data.get('email', 'admin@tourbee.com')
 
         user = User.objects.filter(username=username).first() or User.objects.filter(email=email).first()

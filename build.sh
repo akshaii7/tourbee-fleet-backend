@@ -7,7 +7,7 @@ python manage.py migrate --noinput
 mkdir -p media media/cng_bills media/uber_screenshots media/receipts
 
 # Set default ADMIN_PASSWORD if not provided in Render dashboard
-export ADMIN_PASSWORD="${ADMIN_PASSWORD:-adminpassword123}"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:-TourBee@2026}"
 export ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@tourbee.com}"
 
@@ -16,7 +16,7 @@ import os
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
-password = os.environ.get('ADMIN_PASSWORD', 'adminpassword123')
+password = os.environ.get('ADMIN_PASSWORD', 'TourBee@2026')
 username = os.environ.get('ADMIN_USERNAME', 'admin')
 email = os.environ.get('ADMIN_EMAIL', 'admin@tourbee.com')
 
