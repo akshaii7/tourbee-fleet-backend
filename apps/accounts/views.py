@@ -3,6 +3,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
+from django.http import JsonResponse
 from .serializers import UserSerializer, CustomTokenObtainPairSerializer
 from .permissions import IsAdminUserRole
 
@@ -175,3 +176,7 @@ class UserListCreateView(generics.ListCreateAPIView):
         if password:
             user.set_password(password)
             user.save()
+
+
+def health_check(request):
+    return JsonResponse({"status": "ok"}, status=200)
