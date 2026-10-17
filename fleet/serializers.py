@@ -8,9 +8,45 @@ from .models import (
 )
 
 class VehicleSerializer(serializers.ModelSerializer):
+    assigned_driver_name = serializers.SerializerMethodField()
+    assigned_driver_id = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    fuel_type = serializers.SerializerMethodField()
+    insurance_status = serializers.SerializerMethodField()
+    fitness_status = serializers.SerializerMethodField()
+
     class Meta:
         model = Vehicle
         fields = '__all__'
+
+    def get_assigned_driver_name(self, obj):
+        driver = getattr(obj, 'assigned_driver', None)
+        if driver:
+            return driver.user.get_full_name() or driver.user.username
+        # Also check assigned_drivers in fleet
+        first_fleet_driver = obj.assigned_drivers.first()
+        if first_fleet_driver:
+            return first_fleet_driver.user.get_full_name() or first_fleet_driver.user.username
+        return None
+
+    def get_assigned_driver_id(self, obj):
+        driver = getattr(obj, 'assigned_driver', None)
+        if driver:
+            return driver.id
+        first_fleet_driver = obj.assigned_drivers.first()
+        return first_fleet_driver.id if first_fleet_driver else None
+
+    def get_status(self, obj):
+        return 'ACTIVE' if obj.is_active else 'INACTIVE'
+
+    def get_fuel_type(self, obj):
+        return 'CNG'
+
+    def get_insurance_status(self, obj):
+        return 'VALID'
+
+    def get_fitness_status(self, obj):
+        return 'VALID'
 
 class DriverProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)

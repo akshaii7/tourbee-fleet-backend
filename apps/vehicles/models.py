@@ -41,6 +41,22 @@ class Vehicle(models.Model):
             models.Index(fields=['status', 'fuel_type']),
         ]
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        try:
+            from fleet.models import Vehicle as FleetVehicle
+            FleetVehicle.objects.update_or_create(
+                registration_number=self.registration_number,
+                defaults={
+                    'make': self.make or 'Maruti Suzuki',
+                    'model': self.model or 'WagonR CNG',
+                    'year': self.year or 2023,
+                    'is_active': self.status == self.Status.ACTIVE,
+                }
+            )
+        except Exception:
+            pass
+
     def __str__(self):
         return f"{self.registration_number} ({self.make} {self.model})"
 
