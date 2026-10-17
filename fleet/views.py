@@ -31,15 +31,27 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         try:
             from apps.vehicles.models import Vehicle as AppVehicle
-            existing_regs = set(Vehicle.objects.values_list('registration_number', flat=True))
-            for av in AppVehicle.objects.exclude(registration_number__in=existing_regs):
-                Vehicle.objects.get_or_create(
+            app_vehicles = AppVehicle.objects.all()
+            app_regs = set(app_vehicles.values_list('registration_number', flat=True))
+            
+            # Prune/deactivate any fleet.Vehicle not in AppVehicle anymore
+            orphan_fleet_vehicles = Vehicle.objects.exclude(registration_number__in=app_regs)
+            for orphan in orphan_fleet_vehicles:
+                try:
+                    orphan.delete()
+                except Exception:
+                    orphan.is_active = False
+                    orphan.save(update_fields=['is_active'])
+
+            # Sync any new or active AppVehicle to fleet.Vehicle
+            for av in app_vehicles:
+                Vehicle.objects.update_or_create(
                     registration_number=av.registration_number,
                     defaults={
                         'make': av.make or 'Maruti Suzuki',
                         'model': av.model or 'WagonR CNG',
                         'year': av.year or 2023,
-                        'is_active': av.is_active,
+                        'is_active': av.status == av.Status.ACTIVE,
                     }
                 )
         except Exception:

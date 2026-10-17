@@ -57,6 +57,19 @@ class Vehicle(models.Model):
         except Exception:
             pass
 
+    def delete(self, *args, **kwargs):
+        reg = self.registration_number
+        try:
+            from fleet.models import Vehicle as FleetVehicle
+            FleetVehicle.objects.filter(registration_number=reg).delete()
+        except Exception:
+            try:
+                from fleet.models import Vehicle as FleetVehicle
+                FleetVehicle.objects.filter(registration_number=reg).update(is_active=False)
+            except Exception:
+                pass
+        return super().delete(*args, **kwargs)
+
     def __str__(self):
         return f"{self.registration_number} ({self.make} {self.model})"
 
