@@ -68,6 +68,10 @@ class SalaryCalculation(models.Model):
 
     class Meta:
         ordering = ['-period_end', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'period_start', 'period_end']),
+            models.Index(fields=['status']),
+        ]
 
     def __str__(self):
         return f"Salary: {self.driver.full_name} ({self.period_start.strftime('%d-%m-%Y')} to {self.period_end.strftime('%d-%m-%Y')}) - ₹{self.net_payable_to_driver}"
@@ -96,6 +100,10 @@ class SalaryPayment(models.Model):
 
     class Meta:
         ordering = ['-payment_date', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'payment_date']),
+            models.Index(fields=['payment_date']),
+        ]
 
     def __str__(self):
         return f"Salary Payment: {self.driver.full_name} - ₹{self.amount} ({self.payment_date.strftime('%d-%m-%Y')})"
@@ -120,6 +128,11 @@ class RentPayment(models.Model):
 
     class Meta:
         ordering = ['-payment_date', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'payment_date']),
+            models.Index(fields=['vehicle', 'payment_date']),
+            models.Index(fields=['period_start', 'period_end']),
+        ]
 
     def __str__(self):
         return f"Rent: {self.driver.full_name} - Paid ₹{self.amount_paid} of ₹{self.amount_due}"

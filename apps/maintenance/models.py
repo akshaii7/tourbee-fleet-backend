@@ -29,6 +29,11 @@ class MaintenanceRecord(models.Model):
 
     class Meta:
         ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['vehicle', 'date']),
+            models.Index(fields=['maintenance_type']),
+            models.Index(fields=['date']),
+        ]
 
     def __str__(self):
         return f"{self.vehicle.registration_number} - {self.get_maintenance_type_display()} (₹{self.cost}) on {self.date.strftime('%d-%m-%Y')}"

@@ -45,6 +45,11 @@ class DriverProfile(models.Model):
 
     class Meta:
         ordering = ['user__first_name', 'user__username']
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['payment_mode']),
+            models.Index(fields=['is_active', 'payment_mode']),
+        ]
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -197,6 +202,12 @@ class DailyCalculation(models.Model):
     class Meta:
         unique_together = ('driver', 'date')
         ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'date']),
+            models.Index(fields=['vehicle', 'date']),
+            models.Index(fields=['status', 'date']),
+            models.Index(fields=['payment_mode', 'date']),
+        ]
 
     def __str__(self):
         return f"Calc: {self.driver} | {self.date.strftime('%d-%m-%Y')} | J=₹{self.J}"
@@ -295,6 +306,11 @@ class SalaryPayment(models.Model):
 
     class Meta:
         ordering = ['-payment_date', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'month']),
+            models.Index(fields=['driver', 'payment_date']),
+            models.Index(fields=['payment_date']),
+        ]
 
     def __str__(self):
         return f"Salary Payment: {self.driver} | {self.payment_date.strftime('%d-%m-%Y')} | ₹{self.amount}"

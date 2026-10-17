@@ -26,24 +26,10 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
     """Expose fleet.Vehicle objects so submissions use correct vehicle IDs."""
     serializer_class = VehicleSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
-        from fleet.models import Vehicle as FV
-        from apps.vehicles.models import Vehicle as AV
-        existing_regs = set(FV.objects.values_list('registration_number', flat=True))
-        missing_avs = [av for av in AV.objects.exclude(registration_number__in=existing_regs)]
-        if missing_avs:
-            for av in missing_avs:
-                FV.objects.get_or_create(
-                    registration_number=av.registration_number,
-                    defaults={
-                        'make': av.make or 'Maruti Suzuki',
-                        'model': av.model or 'WagonR CNG',
-                        'year': av.year or 2023,
-                        'is_active': True,
-                    }
-                )
-        return FV.objects.filter(is_active=True).order_by('registration_number')
+        return Vehicle.objects.filter(is_active=True).order_by('registration_number')
 from .calculations import compute_daily_breakdown
 
 class IsAdminOrOwnerDriver(permissions.BasePermission):

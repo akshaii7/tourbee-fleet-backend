@@ -46,6 +46,15 @@ class Driver(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['user__first_name', 'user__username']
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['driver_type']),
+            models.Index(fields=['is_active', 'driver_type']),
+            models.Index(fields=['joining_date']),
+        ]
+
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         try:

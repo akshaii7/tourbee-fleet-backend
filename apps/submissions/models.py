@@ -53,6 +53,11 @@ class EarningsSubmission(models.Model):
     class Meta:
         unique_together = ('driver', 'date')
         ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'date']),
+            models.Index(fields=['vehicle', 'date']),
+            models.Index(fields=['status', 'date']),
+        ]
 
     def __str__(self):
         return f"Earnings: {self.driver.full_name} | {self.date.strftime('%d-%m-%Y')} | ₹{self.gross_earnings} [{self.status}]"
@@ -92,6 +97,12 @@ class ExpenseSubmission(models.Model):
 
     class Meta:
         ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['driver', 'date']),
+            models.Index(fields=['vehicle', 'date']),
+            models.Index(fields=['category', 'date']),
+            models.Index(fields=['status', 'date']),
+        ]
 
     def __str__(self):
         return f"Expense: {self.category.name} | {self.driver.full_name} | ₹{self.amount} [{self.status}]"

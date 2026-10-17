@@ -3,11 +3,13 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from apps.accounts.views import health_check
+from apps.accounts.views import health_check, CurrentUserProfileView
 
 urlpatterns = [
     path('health/', health_check, name='root_health_check'),
     path('healthz/', health_check, name='root_healthz_check'),
+    path('api/health/', health_check, name='api_health_check'),
+    path('api/me/', CurrentUserProfileView.as_view(), name='api_me'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('apps.accounts.urls')),
     path('api/drivers/', include('apps.drivers.urls')),

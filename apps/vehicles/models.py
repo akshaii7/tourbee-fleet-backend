@@ -33,6 +33,14 @@ class Vehicle(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['registration_number']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['fuel_type']),
+            models.Index(fields=['status', 'fuel_type']),
+        ]
+
     def __str__(self):
         return f"{self.registration_number} ({self.make} {self.model})"
 
