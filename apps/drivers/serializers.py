@@ -25,8 +25,7 @@ class DriverSerializer(serializers.ModelSerializer):
             'driver_type', 'license_number', 'license_expiry',
             'daily_rent_amount', 'assigned_vehicle', 'assigned_vehicle_reg',
             'assigned_vehicle_name', 'is_active', 'emergency_contact_name',
-            'emergency_contact_phone', 'bank_account_number', 'bank_ifsc_code',
-            'upi_id', 'joining_date', 'notes', 'created_at', 'updated_at'
+            'emergency_contact_phone', 'joining_date', 'notes', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -55,7 +54,6 @@ class DriverCreateUpdateSerializer(serializers.ModelSerializer):
             'id', 'user', 'driver_type', 'license_number', 'license_expiry',
             'daily_rent_amount', 'assigned_vehicle', 'is_active',
             'emergency_contact_name', 'emergency_contact_phone',
-            'bank_account_number', 'bank_ifsc_code', 'upi_id',
             'joining_date', 'notes',
             'username', 'email', 'first_name', 'last_name', 'password', 'phone_number'
         ]
@@ -63,9 +61,6 @@ class DriverCreateUpdateSerializer(serializers.ModelSerializer):
             'user': {'required': False},
             'license_number': {'required': False, 'allow_blank': True},
             'license_expiry': {'required': False, 'allow_null': True},
-            'bank_account_number': {'required': False, 'allow_null': True, 'allow_blank': True},
-            'bank_ifsc_code': {'required': False, 'allow_null': True, 'allow_blank': True},
-            'upi_id': {'required': False, 'allow_null': True, 'allow_blank': True},
             'emergency_contact_name': {'required': False, 'allow_null': True, 'allow_blank': True},
             'emergency_contact_phone': {'required': False, 'allow_null': True, 'allow_blank': True},
             'daily_rent_amount': {'required': False},

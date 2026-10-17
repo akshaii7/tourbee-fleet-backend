@@ -17,7 +17,7 @@ class DriverAdmin(admin.ModelAdmin):
             'fields': ('license_number', 'license_expiry')
         }),
         ('Financials', {
-            'fields': ('daily_rent_amount', 'bank_account_number', 'bank_ifsc_code', 'upi_id')
+            'fields': ('daily_rent_amount',)
         }),
         ('Emergency Contact', {
             'fields': ('emergency_contact_name', 'emergency_contact_phone')

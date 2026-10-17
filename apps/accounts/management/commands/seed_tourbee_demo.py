@@ -152,27 +152,27 @@ class Command(BaseCommand):
             {
                 'username': 'rahul_k', 'email': 'rahul.k@tourbee.in', 'first_name': 'Rahul', 'last_name': 'Krishnan',
                 'phone': '+91 98471 22334', 'type': Driver.DriverType.PROFIT_SHARING, 'license': 'KL0720180045211',
-                'vehicle': vehicle_map['KL-07-CJ-4521'], 'daily_rent': Decimal('0.00'), 'upi': 'rahul.k@okhdfcbank'
+                'vehicle': vehicle_map['KL-07-CJ-4521'], 'daily_rent': Decimal('0.00')
             },
             {
                 'username': 'anoop_m', 'email': 'anoop.m@tourbee.in', 'first_name': 'Anoop', 'last_name': 'Menon',
                 'phone': '+91 98472 33445', 'type': Driver.DriverType.PROFIT_SHARING, 'license': 'KL0720190089123',
-                'vehicle': vehicle_map['KL-07-DE-8924'], 'daily_rent': Decimal('0.00'), 'upi': 'anoop.menon@okaxis'
+                'vehicle': vehicle_map['KL-07-DE-8924'], 'daily_rent': Decimal('0.00')
             },
             {
                 'username': 'faisal_k', 'email': 'faisal.k@tourbee.in', 'first_name': 'Faisal', 'last_name': 'Khan',
                 'phone': '+91 98473 44556', 'type': Driver.DriverType.DAILY_RENT, 'license': 'KL0720200061234',
-                'vehicle': vehicle_map['KL-07-DF-6132'], 'daily_rent': Decimal('850.00'), 'upi': 'faisal.uber@sbi'
+                'vehicle': vehicle_map['KL-07-DF-6132'], 'daily_rent': Decimal('850.00')
             },
             {
                 'username': 'suresh_p', 'email': 'suresh.p@tourbee.in', 'first_name': 'Suresh', 'last_name': 'Pillai',
                 'phone': '+91 98474 55667', 'type': Driver.DriverType.DAILY_RENT, 'license': 'KL0720170010987',
-                'vehicle': vehicle_map['KL-07-EC-1098'], 'daily_rent': Decimal('950.00'), 'upi': 'suresh.pillai@icici'
+                'vehicle': vehicle_map['KL-07-EC-1098'], 'daily_rent': Decimal('950.00')
             },
             {
                 'username': 'akhil_v', 'email': 'akhil.v@tourbee.in', 'first_name': 'Akhil', 'last_name': 'Varghese',
                 'phone': '+91 98475 66778', 'type': Driver.DriverType.PROFIT_SHARING, 'license': 'KL0720210098112',
-                'vehicle': vehicle_map['KL-07-CJ-9811'], 'daily_rent': Decimal('0.00'), 'upi': 'akhil.v@paytm'
+                'vehicle': vehicle_map['KL-07-CJ-9811'], 'daily_rent': Decimal('0.00')
             },
         ]
 
@@ -201,9 +201,6 @@ class Command(BaseCommand):
                     'license_expiry': today + timedelta(days=700),
                     'daily_rent_amount': d['daily_rent'],
                     'assigned_vehicle': d['vehicle'],
-                    'upi_id': d['upi'],
-                    'bank_account_number': f"9100{random.randint(10000000, 99999999)}",
-                    'bank_ifsc_code': 'HDFC0000123',
                     'emergency_contact_name': f"{d['first_name']} Relative",
                     'emergency_contact_phone': '+91 98470 99887',
                     'joining_date': today - timedelta(days=180),
