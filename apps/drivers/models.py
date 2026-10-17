@@ -60,13 +60,23 @@ class Driver(models.Model):
             fleet_veh = None
             if self.assigned_vehicle:
                 fleet_veh = FleetVehicle.objects.filter(registration_number=self.assigned_vehicle.registration_number).first()
-            
+                if not fleet_veh:
+                    fleet_veh = FleetVehicle.objects.create(
+                        registration_number=self.assigned_vehicle.registration_number,
+                        make=self.assigned_vehicle.make or 'Maruti Suzuki',
+                        model=self.assigned_vehicle.model or 'WagonR CNG',
+                        year=self.assigned_vehicle.year or 2023,
+                        is_active=True,
+                    )
+            lic = self.license_number or f"LIC-{self.user_id}"
+            if FleetProfile.objects.filter(license_number=lic).exclude(user=self.user).exists():
+                lic = f"{lic}-{self.user_id}"
             FleetProfile.objects.update_or_create(
                 user=self.user,
                 defaults={
                     'payment_mode': mode,
                     'phone': self.user.phone_number or '',
-                    'license_number': self.license_number,
+                    'license_number': lic,
                     'assigned_vehicle': fleet_veh,
                     'is_active': self.is_active,
                 }

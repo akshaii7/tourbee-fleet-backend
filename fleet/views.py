@@ -624,12 +624,15 @@ def salary_overview(request):
         if missing_drivers:
             for ad in missing_drivers:
                 mode = PaymentModeChoices.REVENUE_SHARING if ad.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
+                lic = ad.license_number or f"LIC-{ad.user_id}"
+                if DriverProfile.objects.filter(license_number=lic).exclude(user=ad.user).exists():
+                    lic = f"{lic}-{ad.user_id}"
                 DriverProfile.objects.get_or_create(
                     user=ad.user,
                     defaults={
                         'payment_mode': mode,
-                        'phone': ad.user.phone_number,
-                        'license_number': ad.license_number or f"LIC-{ad.user_id}",
+                        'phone': ad.user.phone_number or '',
+                        'license_number': lic,
                         'is_active': ad.is_active,
                     }
                 )

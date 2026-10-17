@@ -446,8 +446,7 @@ class Command(BaseCommand):
                 'payment_date': last_week_end + timedelta(days=1),
                 'amount': net_driver_pay,
                 'payment_method': PaymentMethod.UPI,
-                'transaction_reference': f"UPI/429188291{random.randint(100, 999)}",
-                'notes': f"Direct UPI transfer to {rahul_drv.upi_id}",
+                'notes': f"Direct UPI transfer to driver",
                 'recorded_by': admin_user
             }
         )

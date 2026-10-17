@@ -56,16 +56,27 @@ class DriverProfile(models.Model):
         try:
             from apps.drivers.models import Driver as AppDriver
             mode = AppDriver.DriverType.PROFIT_SHARING if self.payment_mode == PaymentModeChoices.REVENUE_SHARING else AppDriver.DriverType.DAILY_RENT
-            app_veh = None
             if self.assigned_vehicle:
                 from apps.vehicles.models import Vehicle as AppVehicle
                 app_veh = AppVehicle.objects.filter(registration_number=self.assigned_vehicle.registration_number).first()
+                if not app_veh:
+                    app_veh = AppVehicle.objects.create(
+                        registration_number=self.assigned_vehicle.registration_number,
+                        make=self.assigned_vehicle.make or 'Maruti Suzuki',
+                        model=self.assigned_vehicle.model or 'WagonR CNG',
+                        year=self.assigned_vehicle.year or 2023,
+                        is_active=True,
+                    )
             
+            lic = self.license_number or f"LIC-{self.user_id}"
+            if AppDriver.objects.filter(license_number=lic).exclude(user=self.user).exists():
+                lic = f"{lic}-{self.user_id}"
+
             AppDriver.objects.update_or_create(
                 user=self.user,
                 defaults={
                     'driver_type': mode,
-                    'license_number': self.license_number,
+                    'license_number': lic,
                     'assigned_vehicle': app_veh,
                     'is_active': self.is_active,
                 }
