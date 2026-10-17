@@ -45,7 +45,7 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
 
             # Sync any new or active AppVehicle to fleet.Vehicle
             for av in app_vehicles:
-                Vehicle.objects.update_or_create(
+                fv, created = Vehicle.objects.get_or_create(
                     registration_number=av.registration_number,
                     defaults={
                         'make': av.make or 'Maruti Suzuki',
@@ -54,6 +54,12 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
                         'is_active': av.status == av.Status.ACTIVE,
                     }
                 )
+                if not created:
+                    fv.make = av.make or fv.make
+                    fv.model = av.model or fv.model
+                    fv.year = av.year or fv.year
+                    fv.is_active = (av.status == av.Status.ACTIVE)
+                    fv.save(update_fields=['make', 'model', 'year', 'is_active'])
         except Exception:
             pass
         return Vehicle.objects.filter(is_active=True).order_by('registration_number')
