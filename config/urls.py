@@ -13,7 +13,7 @@ admin.site.site_title = 'TourBee Fleet Admin'
 admin.site.index_title = 'Fleet Operations & Management'
 
 urlpatterns = [
-    path('', RedirectView.as_view(url='https://tourbee-fleet-frontend.pages.dev', permanent=False), name='root_redirect'),
+    path('', RedirectView.as_view(url='/admin/', permanent=False), name='root_redirect'),
     path('health/', health_check, name='root_health_check'),
     path('healthz/', health_check, name='root_healthz_check'),
     path('api/health/', health_check, name='api_health_check'),
