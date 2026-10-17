@@ -4,7 +4,7 @@ from .serializers import VehicleSerializer
 from apps.accounts.permissions import IsAdminUserRole
 
 class VehicleViewSet(viewsets.ModelViewSet):
-    queryset = Vehicle.objects.all().order_by('registration_number')
+    queryset = Vehicle.objects.all().select_related('assigned_driver__user').order_by('registration_number')
     serializer_class = VehicleSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['registration_number', 'make', 'model', 'rc_number']

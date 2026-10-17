@@ -1,3 +1,4 @@
+import os
 from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
@@ -5,12 +6,16 @@ def ensure_admin(sender, **kwargs):
     try:
         from django.contrib.auth import get_user_model
         User = get_user_model()
-        user = User.objects.filter(username='admin').first() or User.objects.filter(email='admin@tourbee.com').first()
+        username = os.environ.get('ADMIN_USERNAME', 'admin')
+        email = os.environ.get('ADMIN_EMAIL', 'admin@tourbee.com')
+        password = os.environ.get('ADMIN_PASSWORD', 'TourBee@2026')
+
+        user = User.objects.filter(username=username).first() or User.objects.filter(email=email).first()
         if not user:
-            user = User(username='admin', email='admin@tourbee.com')
-        user.username = 'admin'
-        user.email = 'admin@tourbee.com'
-        user.set_password('TourBee@2026')
+            user = User(username=username, email=email)
+        user.username = username
+        user.email = email
+        user.set_password(password)
         user.role = 'ADMIN'
         user.is_superuser = True
         user.is_staff = True

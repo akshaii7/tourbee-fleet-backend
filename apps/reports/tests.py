@@ -54,6 +54,22 @@ class ReportsAndExportsTests(TestCase):
         self.assertIn('overview', resp.data)
         self.assertIn('financials_month', resp.data)
 
+    def test_financial_reports_admin(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        resp = client.get('/api/reports/financial/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('period', resp.data)
+        self.assertIn('summary', resp.data)
+        self.assertIn('vehicle_breakdown', resp.data)
+        self.assertIn('driver_breakdown', resp.data)
+        summary = resp.data['summary']
+        self.assertEqual(summary['gross_uber_earnings'], 3200.0)
+        self.assertEqual(summary['uber_commission'], 640.0)
+        self.assertEqual(summary['total_trips'], 0)
+        self.assertTrue(len(resp.data['vehicle_breakdown']) >= 1)
+        self.assertTrue(len(resp.data['driver_breakdown']) >= 1)
+
     def test_export_earnings_csv_and_excel(self):
         client = APIClient()
         client.force_authenticate(user=self.admin)

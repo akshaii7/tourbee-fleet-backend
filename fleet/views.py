@@ -1,6 +1,6 @@
 from datetime import date
 from decimal import Decimal
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count, Case, When
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -30,17 +30,19 @@ class FleetVehicleViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         from fleet.models import Vehicle as FV
         from apps.vehicles.models import Vehicle as AV
-        # Auto-sync vehicles if fleet.Vehicle table has fewer items
-        for av in AV.objects.all():
-            FV.objects.get_or_create(
-                registration_number=av.registration_number,
-                defaults={
-                    'make': av.make or 'Maruti Suzuki',
-                    'model': av.model or 'WagonR CNG',
-                    'year': av.year or 2023,
-                    'is_active': True,
-                }
-            )
+        existing_regs = set(FV.objects.values_list('registration_number', flat=True))
+        missing_avs = [av for av in AV.objects.exclude(registration_number__in=existing_regs)]
+        if missing_avs:
+            for av in missing_avs:
+                FV.objects.get_or_create(
+                    registration_number=av.registration_number,
+                    defaults={
+                        'make': av.make or 'Maruti Suzuki',
+                        'model': av.model or 'WagonR CNG',
+                        'year': av.year or 2023,
+                        'is_active': True,
+                    }
+                )
         return FV.objects.filter(is_active=True).order_by('registration_number')
 from .calculations import compute_daily_breakdown
 
@@ -631,17 +633,20 @@ def salary_overview(request):
     # Ensure all App Drivers exist in Fleet DriverProfile
     try:
         from apps.drivers.models import Driver as AppDriver
-        for ad in AppDriver.objects.select_related('user').all():
-            mode = PaymentModeChoices.REVENUE_SHARING if ad.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
-            DriverProfile.objects.get_or_create(
-                user=ad.user,
-                defaults={
-                    'payment_mode': mode,
-                    'phone': ad.user.phone_number,
-                    'license_number': ad.license_number or f"LIC-{ad.user_id}",
-                    'is_active': ad.is_active,
-                }
-            )
+        existing_user_ids = set(DriverProfile.objects.values_list('user_id', flat=True))
+        missing_drivers = [ad for ad in AppDriver.objects.select_related('user').exclude(user_id__in=existing_user_ids)]
+        if missing_drivers:
+            for ad in missing_drivers:
+                mode = PaymentModeChoices.REVENUE_SHARING if ad.driver_type == AppDriver.DriverType.PROFIT_SHARING else PaymentModeChoices.FIXED_RENT
+                DriverProfile.objects.get_or_create(
+                    user=ad.user,
+                    defaults={
+                        'payment_mode': mode,
+                        'phone': ad.user.phone_number,
+                        'license_number': ad.license_number or f"LIC-{ad.user_id}",
+                        'is_active': ad.is_active,
+                    }
+                )
     except Exception:
         pass
 
@@ -803,10 +808,15 @@ def fleet_dashboard(request):
     today = timezone.localdate()
 
     if user.is_admin:
-        # Active driver counts
-        active_drivers = DriverProfile.objects.filter(is_active=True).count()
-        drivers_50_mode = DriverProfile.objects.filter(is_active=True, payment_mode=PaymentModeChoices.REVENUE_SHARING).count()
-        drivers_rent_mode = DriverProfile.objects.filter(is_active=True, payment_mode=PaymentModeChoices.FIXED_RENT).count()
+        # Active driver counts in single query
+        driver_stats = DriverProfile.objects.filter(is_active=True).aggregate(
+            active=Count('id'),
+            mode_50=Count(Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, then=1))),
+            mode_rent=Count(Case(When(payment_mode=PaymentModeChoices.FIXED_RENT, then=1))),
+        )
+        active_drivers = driver_stats['active'] or 0
+        drivers_50_mode = driver_stats['mode_50'] or 0
+        drivers_rent_mode = driver_stats['mode_rent'] or 0
 
         # Build filtered queryset for calculations
         calcs = DailyCalculation.objects.all().select_related('driver__user', 'vehicle')
@@ -835,26 +845,23 @@ def fleet_dashboard(request):
         if status_param:
             calcs = calcs.filter(status=status_param.upper())
 
-        # 50% mode calculations - do NOT mix with fixed rent
-        calcs_50 = calcs.filter(payment_mode=PaymentModeChoices.REVENUE_SHARING)
-        agg_50 = calcs_50.aggregate(
-            total_uber=Sum('A'),
-            total_driver_salaries=Sum('driver_share'),
-            total_tourbee_shares=Sum('company_share'),
+        # Calculations in single batched conditional aggregation
+        agg_calcs = calcs.aggregate(
+            total_uber=Sum(Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, then='A'), default=Decimal('0.00'))),
+            total_driver_salaries=Sum(Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, then='driver_share'), default=Decimal('0.00'))),
+            total_tourbee_shares=Sum(Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, then='company_share'), default=Decimal('0.00'))),
+            total_gpay_pending=Sum(Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, status=PaymentStatusChoices.PENDING, then='J'), default=Decimal('0.00'))),
+            total_gpay_paid=Sum(Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, status=PaymentStatusChoices.PAID, then='J'), default=Decimal('0.00'))),
+            total_fixed_rent_pending=Sum(Case(When(payment_mode=PaymentModeChoices.FIXED_RENT, status=PaymentStatusChoices.PENDING, then='J'), default=Decimal('0.00'))),
+            total_fixed_rent_paid=Sum(Case(When(payment_mode=PaymentModeChoices.FIXED_RENT, status=PaymentStatusChoices.PAID, then='J'), default=Decimal('0.00'))),
         )
-        total_daily_uber_earnings = agg_50['total_uber'] or Decimal('0.00')
-        total_driver_salaries = agg_50['total_driver_salaries'] or Decimal('0.00')
-        total_tourbee_shares = agg_50['total_tourbee_shares'] or Decimal('0.00')
-
-        total_gpay_pending = calcs_50.filter(status=PaymentStatusChoices.PENDING).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-        total_gpay_paid = calcs_50.filter(status=PaymentStatusChoices.PAID).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-
-        # Fixed Rent calculations - do NOT mix with 50% salary calculations
-        calcs_rent = calcs.filter(payment_mode=PaymentModeChoices.FIXED_RENT)
-        total_fixed_rent_pending = calcs_rent.filter(status=PaymentStatusChoices.PENDING).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-        total_fixed_rent_paid = calcs_rent.filter(status=PaymentStatusChoices.PAID).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-
-        # Total payments received (both modes)
+        total_daily_uber_earnings = agg_calcs['total_uber'] or Decimal('0.00')
+        total_driver_salaries = agg_calcs['total_driver_salaries'] or Decimal('0.00')
+        total_tourbee_shares = agg_calcs['total_tourbee_shares'] or Decimal('0.00')
+        total_gpay_pending = agg_calcs['total_gpay_pending'] or Decimal('0.00')
+        total_gpay_paid = agg_calcs['total_gpay_paid'] or Decimal('0.00')
+        total_fixed_rent_pending = agg_calcs['total_fixed_rent_pending'] or Decimal('0.00')
+        total_fixed_rent_paid = agg_calcs['total_fixed_rent_paid'] or Decimal('0.00')
         total_payments_received = total_gpay_paid + total_fixed_rent_paid
 
         # Recent driver submissions
@@ -951,9 +958,14 @@ def fleet_dashboard(request):
         if is_rent_driver:
             # Fixed Rent Dashboard - strictly no 50% salary or TourBee share
             rent_calcs = my_calcs.filter(payment_mode=PaymentModeChoices.FIXED_RENT)
-            total_rent_due = rent_calcs.aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-            rent_pending = rent_calcs.filter(status=PaymentStatusChoices.PENDING).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-            rent_paid = rent_calcs.filter(status=PaymentStatusChoices.PAID).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
+            rent_agg = rent_calcs.aggregate(
+                total=Sum('J'),
+                pending=Sum(Case(When(status=PaymentStatusChoices.PENDING, then='J'), default=Decimal('0.00'))),
+                paid=Sum(Case(When(status=PaymentStatusChoices.PAID, then='J'), default=Decimal('0.00'))),
+            )
+            total_rent_due = rent_agg['total'] or Decimal('0.00')
+            rent_pending = rent_agg['pending'] or Decimal('0.00')
+            rent_paid = rent_agg['paid'] or Decimal('0.00')
 
             return Response({
                 'role': 'DRIVER',
@@ -975,9 +987,11 @@ def fleet_dashboard(request):
                 total_uber=Sum('A'),
                 total_driver_salaries=Sum('driver_share'),
                 total_tourbee_shares=Sum('company_share'),
+                gpay_pending=Sum(Case(When(status=PaymentStatusChoices.PENDING, then='J'), default=Decimal('0.00'))),
+                gpay_paid=Sum(Case(When(status=PaymentStatusChoices.PAID, then='J'), default=Decimal('0.00'))),
             )
-            gpay_pending = calcs_50.filter(status=PaymentStatusChoices.PENDING).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
-            gpay_paid = calcs_50.filter(status=PaymentStatusChoices.PAID).aggregate(Sum('J'))['J__sum'] or Decimal('0.00')
+            gpay_pending = agg['gpay_pending'] or Decimal('0.00')
+            gpay_paid = agg['gpay_paid'] or Decimal('0.00')
 
             return Response({
                 'role': 'DRIVER',

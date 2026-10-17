@@ -163,10 +163,11 @@ class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
-        return self.request.user
+        user = self.request.user
+        return User.objects.filter(id=user.id).select_related('driver_profile__assigned_vehicle').first() or user
 
 class UserListCreateView(generics.ListCreateAPIView):
-    queryset = User.objects.all().order_by('-date_joined')
+    queryset = User.objects.all().select_related('driver_profile__assigned_vehicle').order_by('-date_joined')
     serializer_class = UserSerializer
     permission_classes = [IsAdminUserRole]
 
@@ -179,4 +180,24 @@ class UserListCreateView(generics.ListCreateAPIView):
 
 
 def health_check(request):
+    """
+    Health check endpoint for Render, load balancers, and monitoring.
+    - Default GET /health/ or /healthz/ returns HTTP 200 {"status": "ok"}.
+    - Optional GET /health/?db=1 or /health/?check_db=1 tests database connectivity
+      without exposing sensitive credentials or stack traces in public responses.
+    """
+    check_db = (
+        request.GET.get('db') in ('1', 'true', 'yes') or
+        request.GET.get('check_db') in ('1', 'true', 'yes')
+    )
+    if check_db:
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1;")
+                cursor.fetchone()
+            return JsonResponse({"status": "ok", "database": "connected"}, status=200)
+        except Exception:
+            return JsonResponse({"status": "degraded", "database": "unavailable"}, status=503)
+
     return JsonResponse({"status": "ok"}, status=200)

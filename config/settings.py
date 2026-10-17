@@ -102,41 +102,21 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Database Configuration - SQLite for dev option with PostgreSQL support
-
 # Database Configuration
 import dj_database_url
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASES = {
+    'default': dj_database_url.config(
+        env='DATABASE_URL',
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
+}
 
-if DATABASE_URL:
-    DATABASES = {
-        'default': dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=600,
-        )
-    }
-else:
-    DB_ENGINE = os.getenv('DB_ENGINE', 'postgresql').lower()
-
-    if DB_ENGINE == 'sqlite':
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': BASE_DIR / 'db.sqlite3',
-            }
-        }
-    else:
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DB_NAME', 'tourbee_fleet'),
-                'USER': os.getenv('DB_USER', 'tourbee_user'),
-                'PASSWORD': os.getenv('DB_PASSWORD', 'tourbee_password'),
-                'HOST': os.getenv('DB_HOST', '127.0.0.1'),
-                'PORT': os.getenv('DB_PORT', '5432'),
-            }
-        }
+# Ensure no 'options' / 'search_path' parameter is present (Neon pooler rejects it)
+if 'OPTIONS' in DATABASES['default'] and 'options' in DATABASES['default']['OPTIONS']:
+    DATABASES['default']['OPTIONS'].pop('options', None)
 
 
 # Custom User Model

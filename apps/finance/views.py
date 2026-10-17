@@ -3,7 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count
 from django.utils import timezone
 from datetime import datetime
 from decimal import Decimal
@@ -296,13 +296,44 @@ class RentSummaryView(APIView):
         else:
             if not driver_id:
                 # Return summary for all rent-based drivers
-                rent_drivers = Driver.objects.filter(driver_type=Driver.DriverType.DAILY_RENT)
+                rent_drivers = Driver.objects.filter(
+                    driver_type=Driver.DriverType.DAILY_RENT
+                ).select_related('user', 'assigned_vehicle')
+
+                payment_aggs = {
+                    row['driver_id']: row
+                    for row in RentPayment.objects.filter(
+                        driver__in=rent_drivers
+                    ).values('driver_id').annotate(
+                        total_due=Sum('amount_due'),
+                        total_paid=Sum('amount_paid'),
+                        total_days=Sum('days_count'),
+                        rec_count=Count('id')
+                    )
+                }
+
                 results = []
                 for d in rent_drivers:
-                    results.append(self._get_driver_rent_summary(d))
+                    agg = payment_aggs.get(d.id, {})
+                    due = agg.get('total_due') or Decimal('0.00')
+                    paid = agg.get('total_paid') or Decimal('0.00')
+                    days = agg.get('total_days') or 0
+                    rec_count = agg.get('rec_count') or 0
+                    outstanding = max(Decimal('0.00'), due - paid)
+                    results.append({
+                        'driver_id': d.id,
+                        'driver_name': d.full_name,
+                        'daily_rent_rate': d.daily_rent_amount,
+                        'assigned_vehicle_reg': d.assigned_vehicle.registration_number if d.assigned_vehicle else None,
+                        'total_rental_records': rec_count,
+                        'total_days_billed': days,
+                        'total_rent_due': due,
+                        'total_rent_paid': paid,
+                        'outstanding_balance': outstanding,
+                    })
                 return Response(results)
             try:
-                driver = Driver.objects.get(id=driver_id)
+                driver = Driver.objects.select_related('user', 'assigned_vehicle').get(id=driver_id)
             except Driver.DoesNotExist:
                 return Response({'error': 'Driver not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -313,9 +344,15 @@ class RentSummaryView(APIView):
 
     def _get_driver_rent_summary(self, driver):
         payments = RentPayment.objects.filter(driver=driver)
-        total_rent_due = payments.aggregate(val=Sum('amount_due'))['val'] or Decimal('0.00')
-        total_rent_paid = payments.aggregate(val=Sum('amount_paid'))['val'] or Decimal('0.00')
-        total_days = payments.aggregate(val=Sum('days_count'))['val'] or 0
+        agg = payments.aggregate(
+            due=Sum('amount_due'),
+            paid=Sum('amount_paid'),
+            days=Sum('days_count'),
+            count=Count('id')
+        )
+        total_rent_due = agg['due'] or Decimal('0.00')
+        total_rent_paid = agg['paid'] or Decimal('0.00')
+        total_days = agg['days'] or 0
         outstanding = max(Decimal('0.00'), total_rent_due - total_rent_paid)
 
         return {
@@ -323,7 +360,7 @@ class RentSummaryView(APIView):
             'driver_name': driver.full_name,
             'daily_rent_rate': driver.daily_rent_amount,
             'assigned_vehicle_reg': driver.assigned_vehicle.registration_number if driver.assigned_vehicle else None,
-            'total_rental_records': payments.count(),
+            'total_rental_records': agg['count'] or 0,
             'total_days_billed': total_days,
             'total_rent_due': total_rent_due,
             'total_rent_paid': total_rent_paid,
