@@ -4,8 +4,16 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from apps.accounts.views import health_check, CurrentUserProfileView
+from django.views.generic import RedirectView
+
+# Configure the "VIEW SITE" link in Django admin to open the live frontend app
+admin.site.site_url = 'https://tourbee-fleet-frontend.pages.dev'
+admin.site.site_header = 'TourBee Fleet Administration'
+admin.site.site_title = 'TourBee Fleet Admin'
+admin.site.index_title = 'Fleet Operations & Management'
 
 urlpatterns = [
+    path('', RedirectView.as_view(url='https://tourbee-fleet-frontend.pages.dev', permanent=False), name='root_redirect'),
     path('health/', health_check, name='root_health_check'),
     path('healthz/', health_check, name='root_healthz_check'),
     path('api/health/', health_check, name='api_health_check'),
