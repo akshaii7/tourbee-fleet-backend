@@ -302,18 +302,36 @@ class FinancialReportsView(APIView):
             return Response({'error': 'Admin privileges required'}, status=status.HTTP_403_FORBIDDEN)
 
         today = timezone.localdate()
-        start_date_str = request.query_params.get('start_date', today.replace(day=1).strftime('%Y-%m-%d'))
-        end_date_str = request.query_params.get('end_date', today.strftime('%Y-%m-%d'))
+        raw_start = request.query_params.get('start_date')
+        raw_end = request.query_params.get('end_date')
+
+        # Allow empty or 'all' to show all-time data
+        start_date_str = raw_start.strip() if raw_start else ''
+        end_date_str = raw_end.strip() if raw_end else ''
+
+        # If completely omitted from query params, default to current month
+        if raw_start is None and raw_end is None:
+            start_date_str = today.replace(day=1).strftime('%Y-%m-%d')
+            end_date_str = today.strftime('%Y-%m-%d')
 
         from fleet.models import (
             DailyCalculation, DriverProfile, Vehicle as FleetVehicle,
             SalaryPayment as FleetSalaryPayment, PaymentModeChoices
         )
 
-        # 1. Fleet Daily Calculations - all aggregated in single conditional query
-        calcs_qs = DailyCalculation.objects.filter(
-            date__range=[start_date_str, end_date_str]
-        )
+        # 1. Fleet Daily Calculations - filtered safely
+        calcs_qs = DailyCalculation.objects.all()
+        if start_date_str and start_date_str.lower() != 'all':
+            try:
+                calcs_qs = calcs_qs.filter(date__gte=start_date_str)
+            except Exception:
+                pass
+        if end_date_str and end_date_str.lower() != 'all':
+            try:
+                calcs_qs = calcs_qs.filter(date__lte=end_date_str)
+            except Exception:
+                pass
+
         calcs_agg = calcs_qs.aggregate(
             fleet_gross_uber=Sum(
                 Case(When(payment_mode=PaymentModeChoices.REVENUE_SHARING, then='A'), default=Decimal('0.00'))
@@ -345,10 +363,18 @@ class FinancialReportsView(APIView):
         fleet_trips = calcs_agg['fleet_trips'] or 0
 
         # 2. Legacy Earnings / Expenses / Rent in single aggregated queries
-        legacy_earnings = EarningsSubmission.objects.filter(
-            status=SubmissionStatus.APPROVED,
-            date__range=[start_date_str, end_date_str]
-        )
+        legacy_earnings = EarningsSubmission.objects.filter(status=SubmissionStatus.APPROVED)
+        if start_date_str and start_date_str.lower() != 'all':
+            try:
+                legacy_earnings = legacy_earnings.filter(date__gte=start_date_str)
+            except Exception:
+                pass
+        if end_date_str and end_date_str.lower() != 'all':
+            try:
+                legacy_earnings = legacy_earnings.filter(date__lte=end_date_str)
+            except Exception:
+                pass
+
         l_earn_agg = legacy_earnings.aggregate(
             gross=Sum('gross_earnings'),
             comm=Sum('uber_commission'),
@@ -360,10 +386,18 @@ class FinancialReportsView(APIView):
         legacy_cash = l_earn_agg['cash'] or Decimal('0.00')
         legacy_trips = l_earn_agg['trips'] or 0
 
-        legacy_expenses = ExpenseSubmission.objects.filter(
-            status=SubmissionStatus.APPROVED,
-            date__range=[start_date_str, end_date_str]
-        )
+        legacy_expenses = ExpenseSubmission.objects.filter(status=SubmissionStatus.APPROVED)
+        if start_date_str and start_date_str.lower() != 'all':
+            try:
+                legacy_expenses = legacy_expenses.filter(date__gte=start_date_str)
+            except Exception:
+                pass
+        if end_date_str and end_date_str.lower() != 'all':
+            try:
+                legacy_expenses = legacy_expenses.filter(date__lte=end_date_str)
+            except Exception:
+                pass
+
         l_exp_agg = legacy_expenses.aggregate(
             op_exp=Sum('amount'),
             cng=Sum(Case(When(category__code='CNG', then='amount'), default=Decimal('0.00'))),
@@ -373,14 +407,31 @@ class FinancialReportsView(APIView):
         legacy_cng = l_exp_agg['cng'] or Decimal('0.00')
         legacy_toll = l_exp_agg['toll'] or Decimal('0.00')
 
-        legacy_rent = RentPayment.objects.filter(
-            payment_date__range=[start_date_str, end_date_str]
-        ).aggregate(v=Sum('amount_paid'))['v'] or Decimal('0.00')
+        legacy_rent_qs = RentPayment.objects.all()
+        if start_date_str and start_date_str.lower() != 'all':
+            try:
+                legacy_rent_qs = legacy_rent_qs.filter(payment_date__gte=start_date_str)
+            except Exception:
+                pass
+        if end_date_str and end_date_str.lower() != 'all':
+            try:
+                legacy_rent_qs = legacy_rent_qs.filter(payment_date__lte=end_date_str)
+            except Exception:
+                pass
+        legacy_rent = legacy_rent_qs.aggregate(v=Sum('amount_paid'))['v'] or Decimal('0.00')
 
         # 3. Maintenance Records
-        maint_qs = MaintenanceRecord.objects.filter(
-            date__range=[start_date_str, end_date_str]
-        )
+        maint_qs = MaintenanceRecord.objects.all()
+        if start_date_str and start_date_str.lower() != 'all':
+            try:
+                maint_qs = maint_qs.filter(date__gte=start_date_str)
+            except Exception:
+                pass
+        if end_date_str and end_date_str.lower() != 'all':
+            try:
+                maint_qs = maint_qs.filter(date__lte=end_date_str)
+            except Exception:
+                pass
         maintenance_costs = maint_qs.aggregate(v=Sum('cost'))['v'] or Decimal('0.00')
 
         # Combined totals
@@ -529,8 +580,11 @@ class FinancialReportsView(APIView):
             )
         }
 
+        seen_user_ids = set()
         for d in Driver.objects.select_related('user', 'assigned_vehicle'):
             d_user_id = d.user_id
+            if d_user_id:
+                seen_user_ids.add(d_user_id)
             row_c = calcs_by_user_id.get(d_user_id) or calcs_by_driver_id.get(d.id) or {}
             d_gross = row_c.get('d_gross') or Decimal('0.00')
             d_exp = row_c.get('d_exp') or Decimal('0.00')
@@ -561,6 +615,32 @@ class FinancialReportsView(APIView):
                 'rent_due': float(d_rent),
                 'trips': tot_trips,
             })
+
+        for dp in DriverProfile.objects.select_related('user', 'assigned_vehicle'):
+            if dp.user_id not in seen_user_ids:
+                seen_user_ids.add(dp.user_id)
+                row_c = calcs_by_user_id.get(dp.user_id) or calcs_by_driver_id.get(dp.id) or {}
+                d_gross = row_c.get('d_gross') or Decimal('0.00')
+                d_exp = row_c.get('d_exp') or Decimal('0.00')
+                d_cng = row_c.get('d_cng') or Decimal('0.00')
+                d_share = row_c.get('d_share') or Decimal('0.00')
+                d_rent = row_c.get('d_rent') or Decimal('0.00')
+                d_trips = row_c.get('d_trips') or 0
+                tot_gross = d_gross
+                tot_exp = d_exp + d_cng
+                driver_type_name = 'DAILY_RENT' if dp.payment_mode == PaymentModeChoices.FIXED_RENT else 'PROFIT_SHARING'
+                driver_breakdown.append({
+                    'id': dp.id,
+                    'name': dp.user.get_full_name() or dp.user.username,
+                    'driver_type': driver_type_name,
+                    'vehicle': dp.assigned_vehicle.registration_number if dp.assigned_vehicle else 'None',
+                    'gross_earnings': float(tot_gross),
+                    'commission': 0.0,
+                    'expenses': float(tot_exp),
+                    'driver_salary': float(d_share),
+                    'rent_due': float(d_rent),
+                    'trips': d_trips,
+                })
 
         return Response({
             'period': {'start_date': start_date_str, 'end_date': end_date_str},
