@@ -110,10 +110,15 @@ DATABASES = {
     'default': dj_database_url.config(
         env='DATABASE_URL',
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
+        conn_max_age=60,
         conn_health_checks=True,
     )
 }
+
+# Required for Neon PostgreSQL pooled connections (PgBouncer transaction mode)
+DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
+DATABASES['default']['CONN_MAX_AGE'] = 60
+DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 
 # Ensure no 'options' / 'search_path' parameter is present (Neon pooler rejects it)
 if 'OPTIONS' in DATABASES['default'] and 'options' in DATABASES['default']['OPTIONS']:
