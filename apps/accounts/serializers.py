@@ -43,6 +43,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         raw_username = str(attrs.get('username', '')).strip()
         raw_password = str(attrs.get('password', ''))
+        matched_user = None
 
         # Look up user case-insensitively by username or email
         user = (
