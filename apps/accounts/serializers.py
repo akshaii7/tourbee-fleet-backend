@@ -45,11 +45,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         raw_password = str(attrs.get('password', ''))
         matched_user = None
 
-        # Look up user case-insensitively by username or email
+        # Look up user case-insensitively by username or email (also strip leading @)
+        clean_username = raw_username.lstrip('@')
         user = (
             User.objects.filter(username=raw_username).first()
             or User.objects.filter(username__iexact=raw_username).first()
+            or User.objects.filter(username=clean_username).first()
+            or User.objects.filter(username__iexact=clean_username).first()
             or User.objects.filter(email__iexact=raw_username).first()
+            or User.objects.filter(email__iexact=clean_username).first()
         )
 
         # If user does not exist, but valid admin credentials provided, auto-create admin on the fly
