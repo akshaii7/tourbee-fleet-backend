@@ -258,6 +258,9 @@ class DailyCalculationViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         user = self.request.user
         old_obj = self.get_object()
+        # Block editing of PAID entries (admin-only override via unlock/mark_status)
+        if old_obj.status == 'PAID':
+            raise ValidationError({"detail": "Cannot edit a Paid entry. Mark it Pending first."})
         if old_obj.is_locked and not user.is_admin:
             raise permissions.PermissionDenied("This calculation is locked and can only be modified by company admin.")
         
@@ -276,6 +279,16 @@ class DailyCalculationViewSet(viewsets.ModelViewSet):
             new_state={'final_gpay_or_rent': str(instance.J), 'status': instance.status},
             remarks=self.request.data.get('audit_remarks', '')
         )
+
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        # Block deletion of PAID entries
+        if obj.status == 'PAID':
+            return Response(
+                {"detail": "Cannot delete a Paid entry. Mark it Pending first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUserRole])
     def mark_status(self, request, pk=None):
