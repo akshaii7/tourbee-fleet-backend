@@ -102,11 +102,29 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
     def get_cng_bill_url(self, obj):
         if obj.cng_bill_file:
             return self._make_absolute(obj.cng_bill_file.url)
+        # Fallback to related CNGExpense on same date/driver if exists
+        try:
+            from .models import CNGExpense
+            cng = CNGExpense.objects.filter(driver=obj.driver, date=obj.date).exclude(bill_file='').first()
+            if cng and cng.bill_file:
+                return self._make_absolute(cng.bill_file.url)
+        except Exception:
+            pass
         return None
 
     def get_uber_screenshot_url(self, obj):
         if obj.uber_screenshot_file:
             return self._make_absolute(obj.uber_screenshot_file.url)
+        # Fallback to related DailyEarning if attached or on same date/driver
+        try:
+            if obj.daily_earning and obj.daily_earning.earnings_proof:
+                return self._make_absolute(obj.daily_earning.earnings_proof.url)
+            from .models import DailyEarning
+            earning = DailyEarning.objects.filter(driver=obj.driver, date=obj.date).exclude(earnings_proof='').first()
+            if earning and earning.earnings_proof:
+                return self._make_absolute(earning.earnings_proof.url)
+        except Exception:
+            pass
         return None
 
     def to_internal_value(self, data):
