@@ -136,6 +136,26 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
             if profile:
                 mutable_data['driver'] = profile.id
 
+        if 'driver' in mutable_data and mutable_data['driver']:
+            from fleet.models import DriverProfile
+            raw_driver_id = getattr(mutable_data['driver'], 'pk', mutable_data['driver'])
+            try:
+                if DriverProfile.objects.filter(id=raw_driver_id).exists():
+                    pass
+                else:
+                    from apps.drivers.models import Driver as AppDriver
+                    app_driver = AppDriver.objects.filter(id=raw_driver_id).first()
+                    if app_driver:
+                        profile = DriverProfile.objects.filter(user_id=app_driver.user_id).first()
+                        if profile:
+                            mutable_data['driver'] = profile.id
+                        else:
+                            raise serializers.ValidationError({'driver': 'Driver has no fleet profile. Please contact admin.'})
+                    else:
+                        raise serializers.ValidationError({'driver': 'Driver has no fleet profile. Please contact admin.'})
+            except (ValueError, TypeError):
+                raise serializers.ValidationError({'driver': 'Driver has no fleet profile. Please contact admin.'})
+
         # Support both working_day and working_day_type key names
         if 'working_day' in mutable_data and 'working_day_type' not in mutable_data:
             mutable_data['working_day_type'] = mutable_data.pop('working_day')
