@@ -23,37 +23,50 @@ def compute_daily_breakdown(
     refund
 ):
     """
-    50% TourBee Profit-Sharing Calculation (Corrected):
+    Confirmed 50% TourBee Profit-Sharing Calculation:
 
-    Step 1: Wallet Difference = Total Uber Earnings - Passenger Cash Collected
-        (Amount Uber settled directly to company wallet; positive = Uber paid company)
+    Step 1:
+    Wallet Difference = Total Uber Earnings - Passenger Cash Collected
 
-    Step 2: Net Profit = Total Uber Earnings - CNG Expense - Other Expenses
+    Step 2:
+    Profit Amount = Total Uber Earnings - CNG Expense - Expenses
 
-    Step 3: Driver Share = Net Profit × 50%
+    Step 3:
+    Driver Salary = Profit Amount / 2
 
-    Step 4: TourBee Share = Net Profit × 50%
+    Step 4:
+    TourBee Share = Profit Amount / 2
 
-    Step 5: Final GPay Amount = TourBee Share - Wallet Difference - Refund
-        (What the driver must pay TourBee via GPay)
-        - TourBee is owed their 50% share
-        - Wallet Difference was already settled by Uber to TourBee, so subtract it
-        - Refund reduces what the driver owes
-        - If negative, company owes the driver
+    Step 5:
+    Initial Settlement Amount = Profit Amount
+
+    Step 6:
+    Amount After Wallet Adjustment = Initial Settlement Amount - Wallet Difference
+
+    Step 7:
+    Amount After Refund = Amount After Wallet Adjustment - Refund
+
+    Step 8:
+    Final GPay Amount = Amount After Refund + Expenses
+
+    Equivalent formula:
+    Final GPay Amount = Profit Amount - Wallet Difference - Refund + Expenses
 
     Test Example:
     Total Uber Earnings: ₹13,667
     Passenger Cash Collected: ₹13,210
     CNG Expense: ₹4,825
-    Other Expenses: ₹826
+    Expenses: ₹826
     Refund: ₹415
 
     Expected:
     Wallet Difference: ₹457
-    Net Profit: ₹8,016
-    Driver Share: ₹4,008
+    Profit Amount: ₹8,016
+    Driver Salary: ₹4,008
     TourBee Share: ₹4,008
-    Final GPay = 4,008 - 457 - 415 = ₹3,136
+    Amount After Wallet Adjustment: ₹7,559
+    Amount After Refund: ₹7,144
+    Final GPay Amount: ₹7,970
     """
     A = quantize_money(to_decimal(total_uber_earnings))
     B = quantize_money(to_decimal(passenger_cash_collected))
@@ -75,11 +88,17 @@ def compute_daily_breakdown(
     # Step 4: TourBee Share = Net Profit / 2
     tourbee_share = quantize_money(profit_amount / Decimal('2'))
 
-    # Step 5: Final GPay Amount = TourBee Share - Wallet Difference - Refund
-    # TourBee is owed their 50%, but Uber already settled wallet_difference
-    # to the company, and refund reduces the amount owed.
-    amount_after_wallet = quantize_money(tourbee_share - wallet_difference)
-    final_gpay_amount = quantize_money(amount_after_wallet - F)
+    # Step 5: Initial Settlement Amount = Profit Amount
+    initial_settlement_amount = profit_amount
+
+    # Step 6: Amount After Wallet Adjustment = Initial Settlement Amount - Wallet Difference
+    amount_after_wallet_adjustment = quantize_money(initial_settlement_amount - wallet_difference)
+
+    # Step 7: Amount After Refund = Amount After Wallet Adjustment - Refund
+    amount_after_refund = quantize_money(amount_after_wallet_adjustment - F)
+
+    # Step 8: Final GPay Amount = Amount After Refund + Expenses
+    final_gpay_amount = quantize_money(amount_after_refund + D)
     J = final_gpay_amount
 
     return {
@@ -93,7 +112,10 @@ def compute_daily_breakdown(
         'profit_amount': profit_amount,
         'driver_salary': driver_salary,
         'tourbee_share': tourbee_share,
-        'amount_after_wallet': amount_after_wallet,
+        'initial_settlement_amount': initial_settlement_amount,
+        'amount_after_wallet_adjustment': amount_after_wallet_adjustment,
+        'amount_after_wallet': amount_after_wallet_adjustment,
+        'amount_after_refund': amount_after_refund,
         'final_gpay_amount': final_gpay_amount,
 
         # Legacy aliases for model fields (H, I, J)
@@ -106,9 +128,9 @@ def compute_daily_breakdown(
         'G': G,
         'driver_share': driver_salary,
         'company_share': tourbee_share,
-        'H': tourbee_share,           # H = TourBee's 50% share (settlement base)
-        'I': amount_after_wallet,      # I = TourBee Share - Wallet Difference
-        'J': J,                        # J = Final GPay Amount
+        'H': initial_settlement_amount,
+        'I': amount_after_refund,
+        'J': J,
     }
 
 HALF_DAY_RENT = Decimal('650.00')
