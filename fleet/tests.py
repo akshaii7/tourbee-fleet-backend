@@ -135,3 +135,119 @@ class FormulaCalculationTests(TestCase):
     def test_fixed_rent_full_day(self):
         rent = compute_fixed_rent('FULL_DAY')
         self.assertEqual(rent, Decimal('1200.00'))
+
+
+class SerializerIdTranslationTests(TestCase):
+    """
+    Verify that DailyCalculationSerializer.to_internal_value translates
+    an apps.drivers.Driver pk / apps.vehicles.Vehicle pk to the
+    corresponding fleet.DriverProfile pk / fleet.Vehicle pk, and raises
+    a clear 400 when no matching fleet record exists.
+    No records are modified; get_or_create is NOT used.
+    """
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.drivers.models import Driver as AppDriver
+        from apps.vehicles.models import Vehicle as AppVehicle
+        from fleet.models import DriverProfile, Vehicle as FleetVehicle
+
+        User = get_user_model()
+
+        # Create user + AppDriver. Driver.save() automatically creates a
+        # fleet.DriverProfile via its save() hook, so we just fetch it.
+        self.user = User.objects.create_user(
+            username='test_driver_xlat',
+            password='testpass',
+            role='DRIVER',
+        )
+        self.app_driver = AppDriver.objects.create(
+            user=self.user,
+            driver_type='PROFIT_SHARING',
+            license_number='TMP-TEST-XLAT01',
+        )
+        # Fetch the profile that was auto-created by Driver.save()
+        self.fleet_profile = DriverProfile.objects.filter(user=self.user).first()
+        if self.fleet_profile is None:
+            # Fallback: create manually if the hook is not active in test mode
+            self.fleet_profile = DriverProfile.objects.create(
+                user=self.user,
+                license_number='TMP-TEST-XLAT01',
+                payment_mode='REVENUE_SHARING',
+            )
+
+        # Create AppVehicle. Vehicle.save() auto-creates the fleet.Vehicle
+        # via its save() hook; just fetch it afterwards.
+        self.app_vehicle = AppVehicle.objects.create(
+            registration_number='KL-99-ZZ-0001',
+            make='Test',
+            model='Car',
+            year=2023,
+        )
+        self.fleet_vehicle = FleetVehicle.objects.filter(
+            registration_number='KL-99-ZZ-0001'
+        ).first()
+        if self.fleet_vehicle is None:
+            self.fleet_vehicle = FleetVehicle.objects.create(
+                registration_number='KL-99-ZZ-0001',
+                make='Test',
+                model='Car',
+                year=2023,
+                is_active=True,
+            )
+
+    def _serializer(self):
+        from fleet.serializers import DailyCalculationSerializer
+        return DailyCalculationSerializer()
+
+    def test_driver_id_translates_to_fleet_profile(self):
+        """
+        Sending apps.drivers.Driver.pk should be silently remapped to
+        the fleet.DriverProfile.pk for the same user; no 400 should be
+        raised for the driver field.
+        """
+        s = self._serializer()
+        data = {'driver': self.app_driver.id}
+        try:
+            s.to_internal_value(data)
+        except Exception as exc:
+            from rest_framework.exceptions import ValidationError
+            if not isinstance(exc, ValidationError):
+                raise
+            # Only vehicle/date/etc may be missing — driver must NOT be in errors.
+            self.assertNotIn('driver', exc.detail,
+                             f"driver field raised unexpected error: {exc.detail.get('driver')}")
+
+    def test_vehicle_id_translates_to_fleet_vehicle(self):
+        """
+        Sending apps.vehicles.Vehicle.pk should be silently remapped to
+        the fleet.Vehicle.pk that shares the same registration_number;
+        no 400 should be raised for the vehicle field.
+        """
+        s = self._serializer()
+        data = {'vehicle': self.app_vehicle.id}
+        try:
+            s.to_internal_value(data)
+        except Exception as exc:
+            from rest_framework.exceptions import ValidationError
+            if not isinstance(exc, ValidationError):
+                raise
+            # Only other required fields may be missing — vehicle must NOT be in errors.
+            self.assertNotIn('vehicle', exc.detail,
+                             f"vehicle field raised unexpected error: {exc.detail.get('vehicle')}")
+
+    def test_driver_with_no_fleet_profile_returns_400(self):
+        """A driver id that has no matching DriverProfile returns a clear 400."""
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        s = self._serializer()
+        with self.assertRaises(DRFValidationError) as ctx:
+            s.to_internal_value({'driver': 999999})
+        self.assertIn('driver', ctx.exception.detail)
+
+    def test_vehicle_with_no_fleet_record_returns_400(self):
+        """A vehicle id that has no matching fleet.Vehicle returns a clear 400."""
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        s = self._serializer()
+        with self.assertRaises(DRFValidationError) as ctx:
+            s.to_internal_value({'vehicle': 999999})
+        self.assertIn('vehicle', ctx.exception.detail)
