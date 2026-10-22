@@ -93,7 +93,9 @@ class DailyCalculationSerializer(serializers.ModelSerializer):
     def _make_absolute(self, url):
         if not url:
             return None
-        if url.startswith('http://') or url.startswith('https://'):
+        if url.startswith('http://'):
+            return 'https://' + url[7:]
+        if url.startswith('https://'):
             return url
         base = os.getenv('BACKEND_BASE_URL', 'https://tourbee-fleet-backend-1.onrender.com').rstrip('/')
         clean_url = '/' + url.lstrip('/')
